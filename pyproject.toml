@@ -17,7 +17,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "pdoc>=14"]
 
 [project.scripts]
 bpkit = "bpkit.cli:main"
@@ -33,10 +33,11 @@ addopts = "-ra"
 line-length = 100
 target-version = "py311"
 src = ["src", "tests"]
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "N"]
 ignore = ["RUF012"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["N801", "RUF012"]
+"tests/**" = ["N801", "N806", "RUF012", "RUF059"]

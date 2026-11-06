@@ -1,12 +1,13 @@
 """Overlay import: directory trees → files/directories customizations."""
 
 import os
+import re
 import textwrap
 from pathlib import Path
 
 import pytest
 
-from bpkit import Blueprint, BlueprintError, File, Overlay, OverlayError, Remove
+from bpkit import Blueprint, BlueprintError, File, Overlay, OverlayError, Remove, Replace, Unset
 
 
 def make_tree(root: Path, spec: dict[str, str | None]) -> Path:
@@ -172,3 +173,128 @@ def test_overlay_kwarg(tmp_path, monkeypatch):
         pass
 
     assert [f.path for f in A(overlay="ov").files] == ["/etc/k"]
+
+
+# -- dropping inherited overlays ---------------------------------------------
+
+
+@pytest.fixture
+def layered(tmp_path):
+    make_tree(tmp_path / "base", {"etc/motd": "base\n", "etc/app/a.conf": "a\n"})
+    make_tree(tmp_path / "web", {"etc/motd": "web\n", "etc/app/w.conf": "w\n"})
+
+    class Base(Blueprint):
+        files = [File("/etc/issue", "explicit issue\n")]
+        overlay = Overlay(tmp_path / "base")
+
+    class Web(Base):
+        overlay = Overlay(tmp_path / "web")
+
+    return tmp_path, Base, Web
+
+
+def contents(bp):
+    return {f.path: f.data for f in bp.files}
+
+
+def test_remove_overlay_reveals_what_it_covered(layered):
+    tmp, Base, Web = layered
+
+    class NoWeb(Web):
+        overlay = [Remove(tmp / "web")]
+
+    bp = NoWeb()
+    assert contents(bp) == {
+        "/etc/issue": "explicit issue\n",
+        "/etc/motd": "base\n",  # base's version comes back
+        "/etc/app/a.conf": "a\n",
+    }
+    assert [d.path for d in bp.directories] == ["/etc/app"]  # still needed by base
+    assert re.search(r"/etc/motd +<- Base", NoWeb.explain("files"))
+
+
+def test_remove_lower_overlay_keeps_upper(layered):
+    tmp, Base, Web = layered
+
+    class NoBase(Web):
+        overlay = [Remove(tmp / "base")]
+
+    assert contents(NoBase()) == {
+        "/etc/issue": "explicit issue\n",
+        "/etc/motd": "web\n",
+        "/etc/app/w.conf": "w\n",
+    }
+    assert [d.path for d in NoBase().directories] == ["/etc/app"]
+
+
+def test_remove_overlay_by_trailing_path(layered):
+    _, _, Web = layered
+
+    class NoWeb(Web):
+        overlay = [Remove("web")]  # resolved relative to *this* module; falls back to suffix
+
+    assert "/etc/app/w.conf" not in NoWeb().files
+
+
+def test_unset_and_replace_drop_all_overlays(layered, tmp_path):
+    tmp, _, Web = layered
+    make_tree(tmp / "other", {"etc/other": "o\n"})
+
+    class Bare(Web):
+        overlay = Unset
+
+    class Other(Web):
+        overlay = Replace(Overlay(tmp / "other"))
+
+    assert contents(Bare()) == {"/etc/issue": "explicit issue\n"}  # explicit files stay
+    assert Bare().directories.keys() == []
+    assert contents(Other()) == {"/etc/issue": "explicit issue\n", "/etc/other": "o\n"}
+
+
+def test_explicit_file_over_overlay_survives_drop(layered):
+    tmp, _, Web = layered
+
+    class Pinned(Web):
+        files = [File("/etc/motd", "pinned\n")]
+
+    class Dropped(Pinned):
+        overlay = Unset
+
+    assert contents(Dropped())["/etc/motd"] == "pinned\n"
+
+
+def test_explicit_lower_file_restored(tmp_path):
+    make_tree(tmp_path / "ov", {"etc/issue": "overlay\n"})
+
+    class A(Blueprint):
+        files = [File("/etc/issue", "explicit\n")]
+
+    class B(A):
+        overlay = Overlay(tmp_path / "ov")
+
+    class C(B):
+        overlay = [Remove(tmp_path / "ov")]
+
+    assert contents(B())["/etc/issue"] == "overlay\n"
+    assert contents(C())["/etc/issue"] == "explicit\n"
+
+
+def test_remove_unknown_overlay_raises(layered):
+    tmp, _, Web = layered
+    with pytest.raises(BlueprintError, match="no inherited overlay"):
+
+        class Typo(Web):
+            overlay = [Remove(tmp / "wbe")]
+
+    class Mixin(Blueprint, abstract=True):  # abstract: checked when used
+        overlay = [Remove("web")]
+
+    class Ok(Mixin, Web):
+        pass
+
+    assert "/etc/app/w.conf" not in Ok().files
+
+
+def test_drop_overlay_via_kwargs(layered):
+    _, _, Web = layered
+    assert contents(Web(overlay=Unset)) == {"/etc/issue": "explicit issue\n"}
