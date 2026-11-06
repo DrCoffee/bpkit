@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bpkit"
+version = "0.1.0"
+description = "Define osbuild/image-builder blueprints as Python classes with inheritance"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = ["pydantic>=2.11", "tomli-w>=1.0"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Installation/Setup",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+bpkit = "bpkit.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bpkit"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "N"]
+ignore = ["RUF012"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["N801", "RUF012"]
