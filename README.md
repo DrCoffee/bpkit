@@ -264,6 +264,11 @@ pdoc bpkit                     # live preview in the browser
 pdoc -o docs/html bpkit        # static HTML
 ```
 
+Published docs: <https://drcoffee.github.io/osbuilder-py-test/>. The
+[Docs workflow](.github/workflows/docs.yml) rebuilds and deploys them on every
+push to `main`. Pull requests build the site and run the guide's examples
+without deploying.
+
 `tests/test_docs.py` runs every Python block in the guide and checks the
 `explain()` sample against real output, so the guide can't drift from the code.
 
