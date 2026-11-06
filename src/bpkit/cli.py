@@ -300,6 +300,50 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_audit(args: argparse.Namespace) -> int:
+    from .audit import (
+        audit,
+        check_advisories,
+        load_package_list,
+        pinned_packages,
+        resolve_with_composer,
+    )
+
+    classes: list[type[Blueprint]] = []
+    for target in args.targets:
+        if split_target(target)[1] is not None:
+            classes.append(load_class(target))
+        else:
+            found = module_blueprints(load_module(target))
+            if not found:
+                raise CLIError(f"no concrete Blueprint classes in {target}")
+            classes.extend(found)
+
+    listed = load_package_list(args.packages) if args.packages else None
+    reports = []
+    for cls in classes:
+        bp = cls()
+        report = audit(bp, hosted=args.hosted, ignore=args.ignore)
+        if args.advisories:
+            if listed is not None:
+                packages = listed
+            elif args.depsolve == "composer":
+                from .composer import DEFAULT_SOCKET, ComposerClient
+
+                packages = resolve_with_composer(bp, ComposerClient(args.socket or DEFAULT_SOCKET))
+            else:
+                packages = pinned_packages(bp)
+            check_advisories(report, packages, args.distro or bp.distro)
+            report.findings = [f for f in report.findings if f.code not in set(args.ignore)]
+        reports.append(report)
+
+    if args.json:
+        print(json.dumps([r.to_dict() for r in reports], indent=2))
+    else:
+        print("\n\n".join(r.to_text(show_info=not args.quiet) for r in reports))
+    return 1 if any(r.failed(strict=args.strict) for r in reports) else 0
+
+
 def _add_remote_args(p: argparse.ArgumentParser, backends: list[str], default: str) -> None:
     p.add_argument(
         "--backend",
@@ -411,6 +455,35 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--no-download", action="store_true", help="don't download the result")
     b.add_argument("--poll", type=float, default=15, help="seconds between status checks")
     b.set_defaults(func=cmd_build)
+
+    a = sub.add_parser(
+        "audit",
+        help="check blueprints for mistakes, risky settings and package advisories",
+        description="Offline checks run by default. --advisories also looks up known "
+        "advisories on OSV.dev, using exact versions from --depsolve composer, "
+        "--packages FILE (rpm -qa output), or versions pinned in the blueprint. "
+        "Exit status 1 if there are errors (or warnings with --strict).",
+    )
+    a.add_argument("targets", nargs="+", metavar="TARGET", help="module or module:Class")
+    a.add_argument("--json", action="store_true", help="machine-readable output")
+    a.add_argument("--strict", action="store_true", help="fail on warnings too")
+    a.add_argument("-q", "--quiet", action="store_true", help="hide info findings")
+    a.add_argument(
+        "--ignore",
+        action="append",
+        default=[],
+        metavar="CODE",
+        help="skip a finding code (repeatable)",
+    )
+    a.add_argument(
+        "--hosted", action="store_true", help="also flag settings the hosted service can't express"
+    )
+    a.add_argument("--advisories", action="store_true", help="look up package advisories")
+    a.add_argument("--depsolve", choices=["composer"], help="resolve exact package versions")
+    a.add_argument("--packages", metavar="FILE", help="installed versions (rpm -qa output)")
+    a.add_argument("--socket", default=None, help="osbuild-composer socket")
+    a.add_argument("--distro", help="distro for advisory lookup (default: the blueprint's)")
+    a.set_defaults(func=cmd_audit)
 
     st = sub.add_parser("status", help="show a compose's status")
     st.add_argument("id")

@@ -46,6 +46,16 @@ class FakeComposer:
         self.composes: dict[str, dict] = {}
         self.polls_until_done = 2
         self.fail = False
+        self.depsolved = [
+            {
+                "name": "openssl-libs",
+                "epoch": 1,
+                "version": "3.0.1",
+                "release": "41.el9_0",
+                "arch": "x86_64",
+            },
+            {"name": "bash", "epoch": 0, "version": "5.1.8", "release": "9.el9", "arch": "x86_64"},
+        ]
 
 
 def _weldr_handler(state: FakeComposer):
@@ -64,6 +74,16 @@ def _weldr_handler(state: FakeComposer):
                     return self.error(400, f"{name}: blueprint not found", "UnknownBlueprint")
                 assert "format=toml" in query
                 return self.reply(200, state.blueprints[name].encode(), "text/x-toml")
+            if parts[:2] == ["blueprints", "depsolve"]:
+                name = urllib.parse.unquote(parts[2])
+                bp = tomllib.loads(state.blueprints[name])
+                return self.reply(
+                    200,
+                    {
+                        "blueprints": [{"blueprint": bp, "dependencies": state.depsolved}],
+                        "errors": [],
+                    },
+                )
             if parts[:2] == ["compose", "types"]:
                 return self.reply(
                     200,
@@ -259,6 +279,83 @@ def hosted(monkeypatch):
     monkeypatch.setenv("RH_OFFLINE_TOKEN", "offline-123")
     monkeypatch.delenv("RH_CLIENT_ID", raising=False)
     monkeypatch.delenv("RH_CLIENT_SECRET", raising=False)
+    yield state
+    server.shutdown()
+    server.server_close()
+
+
+# -- OSV.dev -------------------------------------------------------------------
+
+
+class FakeOSV:
+    def __init__(self):
+        # (name, ecosystem) -> {vuln id: fixed EVR}; versions below "fixed" are affected
+        self.advisories = {
+            ("openssl-libs", "Red Hat:enterprise_linux:9::baseos"): {
+                "RHSA-2023:0946": "1:3.0.1-47.el9_1"
+            },
+            ("openssl", "AlmaLinux:9"): {"ALSA-2023:0946": "1:3.0.1-47.el9_1"},
+        }
+        self.queries: list[dict] = []
+        self.down = False
+
+
+def _osv_handler(state: FakeOSV):
+    def affected(evr, fixed):
+        return evr < fixed  # good enough for the fixtures
+
+    class Handler(_Quiet):
+        def do_POST(self):
+            if state.down:
+                return self.reply(503, {"error": "down"})
+            payload = json.loads(self.body())
+            results = []
+            for q in payload["queries"]:
+                state.queries.append(q)
+                key = (q["package"]["name"], q["package"]["ecosystem"])
+                vulns = [
+                    {"id": vid, "modified": "2024-01-01T00:00:00Z"}
+                    for vid, fixed in state.advisories.get(key, {}).items()
+                    if affected(q["version"], fixed)
+                ]
+                results.append({"vulns": vulns} if vulns else {})
+            return self.reply(200, {"results": results})
+
+        def do_GET(self):
+            vid = self.path.rsplit("/", 1)[1]
+            for (name, eco), vulns in state.advisories.items():
+                if vid in vulns:
+                    return self.reply(
+                        200,
+                        {
+                            "id": vid,
+                            "summary": "openssl security update",
+                            "affected": [
+                                {
+                                    "package": {"name": name, "ecosystem": eco},
+                                    "ranges": [
+                                        {
+                                            "type": "ECOSYSTEM",
+                                            "events": [{"introduced": "0"}, {"fixed": vulns[vid]}],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    )
+            return self.reply(404, {"code": 5, "message": "Bug not found."})
+
+    return Handler
+
+
+@pytest.fixture
+def osv(monkeypatch):
+    state = FakeOSV()
+    server = HTTPServer(("127.0.0.1", 0), _osv_handler(state))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    for var in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(var, "127.0.0.1,localhost")
+    monkeypatch.setenv("BPKIT_OSV_URL", f"http://127.0.0.1:{server.server_port}")
     yield state
     server.shutdown()
     server.server_close()

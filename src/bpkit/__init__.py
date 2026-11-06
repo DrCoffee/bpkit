@@ -10,7 +10,7 @@
 handle importing TOML and building images.
 """
 
-from . import build, cli, composer, hosted, importer, markers, models, overlay
+from . import audit, build, cli, composer, hosted, importer, markers, models, overlay
 from .blueprint import Blueprint, BlueprintError, kebab_case
 from .markers import Remove, Replace, Unset
 from .merge import KeyedList, MergeError, StrSet
@@ -72,6 +72,7 @@ __all__ = [
     "StrSet",
     "Unset",
     "User",
+    "audit",
     "build",
     "cli",
     "composer",
