@@ -552,6 +552,13 @@ def apply_layer(
     strict: bool = True,
 ) -> None:
     """Apply a normalised layer onto ``state`` in place, tracking provenance."""
+    stacks = state.setdefault(STACKS, new_stacks())
+    ov = layer.get(OVERLAY_LAYER)
+    if ov and ov["drop"]:
+        try:
+            _drop_overlays(state, provenance, stacks, ov, label, strict=strict)
+        except MergeError as e:
+            raise MergeError(f"{label}.overlay: {e}") from None
     for fname in FIELDS:
         if fname not in layer:
             continue
@@ -562,6 +569,118 @@ def apply_layer(
             raise MergeError(f"{label}.{fname}: {e}") from None
         track(provenance, fname, state[fname], new, label)
         state[fname] = new
+        if fname in FS_FIELDS:
+            owners = ov["owners"].get(fname, {}) if ov else {}
+            _push_stack(stacks[fname], layer[fname], owners, label)
+    if ov:
+        stacks["roots"].extend(r for r in ov["add_roots"] if r not in stacks["roots"])
+
+
+# --------------------------------------------------------------------------
+# Overlay stacks: which overlay (or class) contributed each file/directory
+# version, so dropping an overlay can reveal what it covered.
+# --------------------------------------------------------------------------
+
+#: Hidden state key holding the overlay stacks.
+STACKS = "_overlay_stacks"
+#: Layer key holding a class's overlay directive (built by ``normalize_layer``).
+OVERLAY_LAYER = "_overlay"
+FS_FIELDS = ("directories", "files")
+
+
+def new_stacks() -> dict[str, Any]:
+    """``roots``: applied overlay roots in order; per field: path → [(owner, entry, label)]."""
+    return {"roots": [], "directories": {}, "files": {}}
+
+
+def _push_stack(
+    stack: dict[str, list[tuple[str | None, Any, str]]],
+    value: Any,
+    owners: Mapping[str, str],
+    label: str,
+) -> None:
+    if value is Unset:
+        stack.clear()
+        return
+    items = value
+    if isinstance(value, Replace):
+        stack.clear()
+        items = value.value
+    for item in items:
+        if isinstance(item, Remove):
+            for key in item.keys:
+                stack.pop(key, None)
+        else:
+            stack.setdefault(item.path, []).append((owners.get(item.path), item, label))
+
+
+def match_overlay_root(key: Mapping[str, Any], roots: list[str]) -> str | None:
+    """Find the applied overlay a ``Remove`` key refers to.
+
+    Matches the key resolved against the removing class's module directory
+    first, then a unique trailing-path match (``"overlays/base"`` matches
+    ``/src/proj/overlays/base`` wherever the parent class lives).
+    """
+    if key["abs"] in roots:
+        return key["abs"]
+    suffix = key["suffix"]
+    if not suffix:
+        return None
+    hits = [r for r in roots if r == suffix or r.endswith("/" + suffix)]
+    if len(hits) > 1:
+        raise MergeError(f"Remove({key['display']!r}) matches several overlays: {hits}")
+    return hits[0] if hits else None
+
+
+def _drop_overlays(
+    state: dict[str, Any],
+    provenance: dict[str, dict[str, str]],
+    stacks: dict[str, Any],
+    ov: Mapping[str, Any],
+    label: str,
+    *,
+    strict: bool,
+) -> None:
+    roots: list[str] = stacks["roots"]
+    if ov["drop"] == "all":
+        dropped = set(roots)
+    else:
+        dropped = set()
+        for key in ov["drop"]:
+            root = match_overlay_root(key, roots)
+            if root is None:
+                if strict:
+                    known = ", ".join(map(repr, roots)) or "none"
+                    raise MergeError(
+                        f"cannot Remove({key['display']!r}): no inherited overlay "
+                        f"with that root (inherited overlays: {known})"
+                    )
+                continue
+            dropped.add(root)
+    if not dropped:
+        return
+    stacks["roots"] = [r for r in roots if r not in dropped]
+
+    for fname in FS_FIELDS:
+        stack = stacks[fname]
+        before = copy.deepcopy(state[fname])
+        current: KeyedList[Any] = state[fname]
+        restored: dict[str, str] = {}
+        for path, entries in list(stack.items()):
+            kept = [e for e in entries if e[0] not in dropped]
+            if len(kept) == len(entries):
+                continue
+            if not kept:
+                del stack[path]
+                current.discard(path)
+                continue
+            stack[path] = kept
+            if kept[-1] is not entries[-1]:
+                current.add(kept[-1][1])  # replaces in place, keeps position
+                restored[path] = kept[-1][2]
+        track(provenance, fname, before, current, label)
+        for path, origin in restored.items():
+            provenance[fname][f"[{path!r}]"] = origin
 
 
 # --------------------------------------------------------------------------

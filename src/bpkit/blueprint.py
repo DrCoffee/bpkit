@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from .markers import Remove, Replace, Unset
 from .merge import (
     FIELDS,
+    OVERLAY_LAYER,
     MergeError,
     apply_layer,
     apply_value,
@@ -97,29 +98,82 @@ def normalize_layer(raw: Mapping[str, Any], *, owner: str, base_dir: Path | None
             raise BlueprintError(f"{owner}.{name}: {e}") from None
 
     if OVERLAY in raw and raw[OVERLAY] is not None:
-        _expand_overlays(layer, raw[OVERLAY], owner=owner, base_dir=base_dir)
+        layer[OVERLAY_LAYER] = _overlay_layer(layer, raw[OVERLAY], owner=owner, base_dir=base_dir)
     return layer
 
 
-def _expand_overlays(
+def _overlay_key(item: Any, *, owner: str, base_dir: Path | None) -> dict[str, str]:
+    """A ``Remove(...)`` target: an overlay root as a path or an ``Overlay``."""
+    if isinstance(item, Overlay):
+        root = item.resolved(base_dir).root
+        return {"display": str(item.root), "abs": str(root), "suffix": ""}
+    if not isinstance(item, (str, os.PathLike)):
+        raise BlueprintError(f"{owner}.overlay: Remove() takes overlay paths, got {item!r}")
+    path = Path(item)
+    absolute = path if path.is_absolute() or base_dir is None else base_dir / path
+    suffix = "" if path.is_absolute() else path.as_posix().strip("/").removeprefix("./")
+    return {"display": str(item), "abs": str(absolute.resolve()), "suffix": suffix}
+
+
+def _overlay_layer(
     layer: dict[str, Any], value: Any, *, owner: str, base_dir: Path | None
-) -> None:
+) -> dict[str, Any]:
+    """Parse an ``overlay = ...`` declaration.
+
+    ``Overlay(...)`` / a path / a list adds overlays; ``Remove(root)`` in the
+    list drops an inherited one; ``Unset`` drops all inherited overlays and
+    ``Replace(...)`` drops them all, then adds its own.
+    """
+    drop: str | list[dict[str, str]] = []
+    if value is Unset:
+        drop, items = "all", []
+    elif isinstance(value, Replace):
+        drop = "all"
+        inner = value.value
+        items = list(inner) if isinstance(inner, (list, tuple)) else [inner]
+    else:
+        items = list(value) if isinstance(value, (list, tuple)) else [value]
+    adds: list[Any] = []
+    for item in items:
+        if isinstance(item, Remove):
+            if drop == "all":
+                raise BlueprintError(f"{owner}.overlay: Remove() makes no sense inside Replace()")
+            assert isinstance(drop, list)
+            drop.extend(_overlay_key(k, owner=owner, base_dir=base_dir) for k in item.keys)
+        else:
+            adds.append(item)
+    roots, owners = _expand_overlays(layer, adds, owner=owner, base_dir=base_dir)
+    return {"drop": drop, "add_roots": roots, "owners": owners}
+
+
+def _expand_overlays(
+    layer: dict[str, Any], items: list[Any], *, owner: str, base_dir: Path | None
+) -> tuple[list[str], dict[str, dict[str, str]]]:
     """Fold overlay entries into the layer's ``files`` / ``directories``.
 
     Overlay entries come first; explicit ``files`` / ``directories`` entries in
-    the same class win over overlay entries with the same path.
+    the same class win over overlay entries with the same path. Returns the
+    overlay roots and, per field, which root each overlay-sourced path came from.
     """
-    items = value if isinstance(value, (list, tuple)) else [value]
     dirs: dict[str, Any] = {}
     files: dict[str, Any] = {}
+    roots: list[str] = []
+    owners: dict[str, dict[str, str]] = {"directories": {}, "files": {}}
     for item in items:
         if isinstance(item, (str, os.PathLike)):
             item = Overlay(item)
         if not isinstance(item, Overlay):
             raise BlueprintError(f"{owner}.overlay: expected Overlay or a path, got {item!r}")
-        d, f = item.resolved(base_dir).entries()
-        dirs.update((e.path, e) for e in d)
-        files.update((e.path, e) for e in f)
+        resolved = item.resolved(base_dir)
+        root = str(resolved.root)
+        roots.append(root)
+        d, f = resolved.entries()
+        for e in d:
+            dirs[e.path] = e
+            owners["directories"][e.path] = root
+        for e in f:
+            files[e.path] = e
+            owners["files"][e.path] = root
 
     for fname, entries in (("directories", dirs), ("files", files)):
         if not entries:
@@ -135,6 +189,11 @@ def _expand_overlays(
             explicit = explicit or []
             keys = {getattr(e, "path", None) for e in explicit}
             layer[fname] = [e for p, e in entries.items() if p not in keys] + list(explicit)
+        # Explicit entries in the same class are not owned by the overlay.
+        for e in layer[fname].value if isinstance(layer[fname], Replace) else layer[fname]:
+            if not isinstance(e, Remove) and e is not entries.get(e.path):
+                owners[fname].pop(e.path, None)
+    return roots, owners
 
 
 B = TypeVar("B", bound="Blueprint")

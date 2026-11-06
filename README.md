@@ -13,30 +13,37 @@ blueprint format.
 ```python
 from bpkit import Blueprint, Services, User, Filesystem, Overlay, Remove, Replace
 
+
 class Base(Blueprint, abstract=True):
     """Common base for all our images."""
+
     packages = ["vim", "tmux"]
     services = Services(enabled=["sshd"])
     timezone = "Australia/Sydney"
     users = [User(name="ops", groups=["wheel"], key="ssh-ed25519 AAAA...")]
-    overlay = Overlay("overlays/base")        # config files from a directory tree
+    overlay = Overlay("overlays/base")  # config files from a directory tree
 
-class Hardened(Blueprint, abstract=True):    # mixin
+
+class Hardened(Blueprint, abstract=True):  # mixin
     services = Services(enabled=["firewalld"], masked=["cups"])
     kernel_append = ["audit=1"]
 
+
 class WebServer(Base, Hardened):
-    packages = ["nginx"]                      # ADDS → vim, tmux, nginx
-    timezone = "UTC"                          # scalar → OVERRIDES
+    packages = ["nginx"]  # ADDS → vim, tmux, nginx
+    timezone = "UTC"  # scalar → OVERRIDES
     filesystem = [Filesystem("/var", "10 GiB")]
 
+
 class StagingWeb(WebServer):
-    packages = ["htop", Remove("tmux")]       # add htop, drop inherited tmux
+    packages = ["htop", Remove("tmux")]  # add htop, drop inherited tmux
+
 
 class Minimal(WebServer):
-    packages = Replace(["nginx"])             # discard everything inherited
+    packages = Replace(["nginx"])  # discard everything inherited
 
-bp = StagingWeb(hostname="staging-web01")     # instance kwargs override too
+
+bp = StagingWeb(hostname="staging-web01")  # instance kwargs override too
 print(bp.to_toml())
 bp.write("staging-web.toml")
 ```
@@ -120,7 +127,7 @@ overlays/web/
 
 ```python
 class WebServer(Base):
-    overlay = Overlay("overlays/web")          # relative to this .py file
+    overlay = Overlay("overlays/web")  # relative to this .py file
     # or: overlay = ["overlays/web", Overlay("nginx", prefix="/etc/nginx")]
 ```
 
@@ -136,6 +143,22 @@ class WebServer(Base):
   replaces the parent's (the overlayfs mental model), explicit `files =
   [...]` in the same class win over its overlay, and
   `files = [Remove("/etc/motd")]` drops one.
+- Drop an inherited overlay like removing a layer from an overlayfs stack:
+  whatever it was covering (a lower overlay's file, or an explicit `File`)
+  comes back.
+
+  ```python
+  class NoDebug(WebDebug):
+      overlay = [Remove("overlays/debug")]          # just that one
+  class Bare(WebDebug):
+      overlay = Unset                               # all inherited overlays
+  class Swap(WebDebug):
+      overlay = Replace(Overlay("overlays/other"))  # drop all, add this
+  ```
+
+  `Remove` takes the overlay's path. It is resolved against the removing
+  class's module first, then matched as a unique trailing path
+  (`"overlays/debug"`). Removing an overlay that isn't inherited raises.
 - The overlay is read when the class is defined, and these problems are
   reported then: symlinks, non-UTF-8 files, and paths image-builder's default
   policy refuses (`/usr` outside `/usr/local`, `/boot`, `/etc/passwd`, …).
@@ -152,16 +175,17 @@ blueprint class.
 ```python
 class Monitored(Blueprint, abstract=True):
     def customize(self) -> None:
-        super().customize()                    # cooperative chaining
+        super().customize()  # cooperative chaining
         self.packages.add("node-exporter")
         self.services.enable("node-exporter")  # moves it out of disabled/masked
+
 
 class App(Monitored, WebServer):
     def customize(self) -> None:
         super().customize()
         if os.environ.get("DEBUG"):
             self.packages.add("gdb")
-        self.packages.remove("tmux")           # KeyError if missing
+        self.packages.remove("tmux")  # KeyError if missing
         self.hostname = f"app-{self.version}"  # assignment replaces the value
 ```
 
@@ -229,6 +253,19 @@ only picks up classes **defined** in the module, not ones it imports.
   (`pakages = [...]` → "did you mean 'packages'?"). Use `UPPER_CASE` or
   `_private` names for your own attributes.
 - `name`, `description` and `version` are per class, not inherited.
+
+## Docs
+
+The usage guide is [`docs/guide.md`](docs/guide.md). pdoc renders it as the
+landing page, with the API reference after it:
+
+```bash
+pdoc bpkit                     # live preview in the browser
+pdoc -o docs/html bpkit        # static HTML
+```
+
+`tests/test_docs.py` runs every Python block in the guide and checks the
+`explain()` sample against real output, so the guide can't drift from the code.
 
 ## Tests
 
