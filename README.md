@@ -280,7 +280,26 @@ If `image-builder` is on `PATH`, an integration test also runs
 `image-builder manifest qcow2 --blueprint …` on each example; set
 `BPKIT_TEST_DISTRO` to choose the distro (default `fedora-42`).
 
-## Not in v1
+## Importing and building
 
-- Importing existing TOML blueprints as classes (`bpkit import`)
-- Talking to osbuild-composer or the hosted API; building images
+```bash
+bpkit import web.toml db.toml --base Fleet -o fleet.py [--overlay-dir overlays]
+bpkit import --from-composer web-server -o web.py
+
+bpkit build fleet.py:WebServer -t qcow2                          # local image-builder
+bpkit build fleet.py:WebServer -t qcow2 --backend composer       # osbuild-composer (Weldr socket)
+bpkit build fleet.py:WebServer -t guest-image --backend hosted   # console.redhat.com
+bpkit push fleet.py:WebServer [--backend hosted --type guest-image]
+bpkit status <id> [--backend hosted]
+```
+
+- **Import:** you get one class per blueprint, and `--base` factors the
+  shared settings into an abstract class. The output renders back to the
+  same blueprints; only list order can change.
+- **Hosted credentials:** `RH_OFFLINE_TOKEN`, or `RH_CLIENT_ID` and
+  `RH_CLIENT_SECRET` for a service account.
+- **Hosted conversion:** blueprints are converted to the service's JSON
+  format. Settings it can't express are reported as errors unless you pass
+  `--lossy`.
+- **No extra dependencies:** the clients only use the standard library.
+  They are tested against fake servers, not the live services.
