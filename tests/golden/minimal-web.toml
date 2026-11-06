@@ -1,0 +1,114 @@
+name = "minimal-web"
+description = "Bare nginx box: drops all inherited packages."
+version = "0.0.1"
+distro = "rhel-9"
+packages = [
+    { name = "nginx", version = "*" },
+]
+
+[customizations]
+filesystem = [
+    { mountpoint = "/var", minsize = "10 GiB" },
+    { mountpoint = "/var/log", minsize = "4 GiB" },
+]
+directories = [
+    { path = "/etc/motd.d", ensure_parents = true },
+    { path = "/etc/ssh/sshd_config.d", ensure_parents = true },
+    { path = "/etc/nginx/conf.d", ensure_parents = true },
+    { path = "/var/www/html/static", ensure_parents = true },
+]
+fips = true
+
+[customizations.kernel]
+append = "audit=1 audit_backlog_limit=8192"
+
+[[customizations.user]]
+name = "ops"
+key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOps ops@example.com"
+groups = [
+    "wheel",
+]
+
+[customizations.timezone]
+timezone = "UTC"
+ntpservers = [
+    "0.au.pool.ntp.org",
+    "1.au.pool.ntp.org",
+]
+
+[customizations.locale]
+languages = [
+    "en_AU.UTF-8",
+]
+keyboard = "us"
+
+[customizations.firewall]
+ports = [
+    "9100:tcp",
+]
+
+[customizations.firewall.services]
+enabled = [
+    "ssh",
+    "http",
+    "https",
+]
+disabled = [
+    "dhcpv6-client",
+]
+
+[customizations.services]
+enabled = [
+    "firewalld",
+    "auditd",
+    "sshd",
+    "chronyd",
+    "nginx",
+]
+masked = [
+    "cups",
+    "avahi-daemon",
+]
+
+[[customizations.files]]
+path = "/etc/motd.d/10-banner"
+data = """
+Authorised use only. Web tier.
+"""
+mode = "0644"
+
+[[customizations.files]]
+path = "/etc/ssh/sshd_config.d/50-hardening.conf"
+data = """
+PermitRootLogin no
+PasswordAuthentication no
+"""
+mode = "0644"
+
+[[customizations.files]]
+path = "/etc/nginx/conf.d/site.conf"
+data = """
+server {
+    listen 80 default_server;
+    root /var/www/html;
+}
+"""
+mode = "0644"
+
+[[customizations.files]]
+path = "/usr/local/bin/healthcheck"
+data = """
+#!/bin/sh
+exec curl -fsS http://localhost/healthz
+"""
+mode = "0755"
+
+[[customizations.repositories]]
+id = "internal"
+baseurls = [
+    "https://repo.example.com/el9/$basearch/",
+]
+gpgkeys = [
+    "https://repo.example.com/RPM-GPG-KEY-internal",
+]
+gpgcheck = true
