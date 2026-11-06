@@ -280,6 +280,29 @@ If `image-builder` is on `PATH`, an integration test also runs
 `image-builder manifest qcow2 --blueprint …` on each example; set
 `BPKIT_TEST_DISTRO` to choose the distro (default `fedora-42`).
 
+## Auditing
+
+```bash
+bpkit audit fleet.py [--strict] [--json] [--ignore BP046] [--hosted]
+bpkit audit fleet.py --advisories --depsolve composer      # or --packages rpm-qa.txt
+```
+
+The offline checks flag:
+
+- values image-builder would reject
+- contradictory settings (SSH keys with `sshd` masked, firewall rules with
+  `firewalld` off)
+- risky settings: plain-text passwords, world-writable or setuid modes,
+  secrets in files, HTTP or unsigned repositories, kernel args like
+  `selinux=0`, legacy daemons
+- overlay usage: empty overlays, shadowed or replaced files
+
+`--advisories` looks up known advisories for exact package versions on
+OSV.dev (RHEL, AlmaLinux and Rocky Linux). Every finding has a stable code
+(the table is in the `bpkit.audit` docs), names the class and overlay that
+set the value, and can be silenced per class with
+`AUDIT_IGNORE = ["BP011"]`.
+
 ## Importing and building
 
 ```bash

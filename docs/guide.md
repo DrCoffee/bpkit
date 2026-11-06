@@ -288,6 +288,49 @@ and stops with a list of anything the service can't express (user shells,
 The same operations are available from Python: `bpkit.build.build()`,
 `bpkit.composer.ComposerClient`, `bpkit.hosted.HostedClient`.
 
+## 11. Auditing
+
+```
+bpkit audit fleet.py                       # every concrete class, offline checks
+bpkit audit fleet.py:WebServer --strict    # fail on warnings too (CI)
+bpkit audit fleet.py --advisories --depsolve composer
+bpkit audit fleet.py:WebServer --advisories --packages rpms.txt
+```
+
+```
+staging-web:
+  warning  BP010 users dev: no SSH key or password; this user can't log in  (StagingWeb)
+  info     BP092 files /etc/motd.d/10-banner: overlay in WebServer replaces the one from Base  (WebServer)
+  -- 0 error(s), 1 warning(s), 1 info
+```
+
+The offline checks cover:
+
+- values image-builder would reject: hostnames, timezones, firewall ports,
+  mountpoints, file paths
+- settings that contradict each other, e.g. SSH keys with `sshd` masked
+- risky settings: plain-text passwords, world-writable modes, secrets in
+  files, HTTP repositories, `selinux=0`
+- overlay usage: overlays that contribute nothing, and files that are
+  shadowed or replaced
+
+Each finding names the class (and overlay) that set the value. Exit status is
+1 on errors, or on warnings too with `--strict`. `--json` gives
+machine-readable output.
+
+Silence a code with `--ignore BP046`, or for a class and its subclasses:
+
+```python
+class Lab(WebServer):
+    AUDIT_IGNORE = ["BP011"]      # plain-text password is fine in the lab
+```
+
+For advisories, bpkit needs exact package versions. Get them from an
+osbuild-composer depsolve (`--depsolve composer`) or from
+`rpm -qa --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE} %{SOURCERPM}\n'`
+output (`--packages FILE`). They are checked against OSV.dev, which covers
+RHEL, AlmaLinux and Rocky Linux. `bpkit.audit` lists every code.
+
 ## Gotchas
 
 - **Unknown fields:** a lowercase class attribute that isn't a blueprint field
