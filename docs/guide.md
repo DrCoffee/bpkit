@@ -248,6 +248,46 @@ class Cis(WebServer):
     extra_customizations = {"openscap": {"profile_id": "xccdf_org.ssgproject.content_profile_cis"}}
 ```
 
+## 9. Importing existing blueprints
+
+```
+bpkit import web.toml db.toml --base Fleet -o fleet.py --overlay-dir overlays
+```
+
+You get one class per blueprint. `--base Fleet` moves whatever every
+blueprint shares into an abstract `Fleet`, and each subclass keeps only its
+differences. `--overlay-dir` writes inline file contents to
+`overlays/<name>/` and uses `Overlay(...)` in place of `File(...)`.
+`--from-composer NAME` imports a blueprint stored in osbuild-composer.
+
+The generated classes render back to the same blueprints. Only list order
+can change, because the base's entries come first.
+
+## 10. Building images
+
+```
+bpkit build fleet.py:WebServer -t qcow2                       # local image-builder
+bpkit build fleet.py:WebServer -t qcow2 --backend composer    # osbuild-composer
+bpkit build fleet.py:WebServer -t guest-image --backend hosted  # console.redhat.com
+bpkit push  fleet.py:WebServer                                # store in composer
+bpkit status <compose-id> --backend hosted
+```
+
+- **local** runs `image-builder build --blueprint …`. Extra flags go
+  after `--`.
+- **composer** pushes the blueprint over `/run/weldr/api.socket`, composes,
+  waits, and downloads into `-o`.
+- **hosted** needs `RH_OFFLINE_TOKEN`, or `RH_CLIENT_ID`/`RH_CLIENT_SECRET`
+  for a service account, plus a `distro`. The default upload is `aws.s3`,
+  which gives a download URL.
+
+The hosted API has its own JSON format. bpkit converts your blueprint to it
+and stops with a list of anything the service can't express (user shells,
+`services.default_target`, …). `--lossy` drops those settings instead.
+
+The same operations are available from Python: `bpkit.build.build()`,
+`bpkit.composer.ComposerClient`, `bpkit.hosted.HostedClient`.
+
 ## Gotchas
 
 - **Unknown fields:** a lowercase class attribute that isn't a blueprint field

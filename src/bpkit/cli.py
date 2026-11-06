@@ -6,9 +6,10 @@ import argparse
 import difflib
 import importlib
 import importlib.util
+import json
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import ModuleType
 
@@ -173,6 +174,153 @@ def cmd_overlay(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_import(args: argparse.Namespace) -> int:
+    from .composer import DEFAULT_SOCKET, ComposerClient
+    from .importer import import_blueprints, load_toml_files
+
+    blueprints = load_toml_files(args.files)
+    if args.from_composer:
+        import tomllib
+
+        client = ComposerClient(args.socket or DEFAULT_SOCKET)
+        blueprints += [tomllib.loads(client.get_blueprint(n)) for n in args.from_composer]
+    if not blueprints:
+        raise CLIError("give TOML files and/or --from-composer NAME")
+    out = Path(args.output) if args.output not in (None, "-") else None
+    source = import_blueprints(
+        blueprints,
+        base=args.base,
+        overlay_dir=args.overlay_dir,
+        module_dir=out.parent if out else Path.cwd(),
+        source="bpkit import "
+        + " ".join(args.files + [f"--from-composer {n}" for n in args.from_composer]),
+    )
+    if out is None:
+        sys.stdout.write(source)
+    else:
+        if out.exists() and not args.force:
+            raise CLIError(f"{out} exists; pass --force to overwrite")
+        out.write_text(source, encoding="utf-8")
+        print(f"wrote {out}", file=sys.stderr)
+    return 0
+
+
+def _progress(prefix: str) -> Callable[[dict], None]:
+    def show(status: dict) -> None:
+        state = status.get("queue_status") or status.get("status")
+        print(f"{prefix}: {state}", file=sys.stderr)
+
+    return show
+
+
+def _hosted_kwargs(args: argparse.Namespace) -> dict:
+    kw: dict = {"lossy": args.lossy}
+    if args.distro:
+        kw["distribution"] = args.distro
+    if args.arch:
+        kw["architecture"] = args.arch
+    return kw
+
+
+def cmd_push(args: argparse.Namespace) -> int:
+    bp = load_class(args.target)()
+    if args.backend == "composer":
+        from .composer import DEFAULT_SOCKET, ComposerClient
+
+        name = ComposerClient(args.socket or DEFAULT_SOCKET).push(bp)
+        print(f"pushed blueprint {name!r} to osbuild-composer")
+    else:
+        from .hosted import HostedClient
+
+        if not args.type:
+            raise CLIError("hosted blueprints need at least one --type")
+        bp_id = HostedClient.from_env().push(bp, args.type, **_hosted_kwargs(args))
+        print(bp_id)
+    return 0
+
+
+def cmd_build(args: argparse.Namespace) -> int:
+    bp = load_class(args.target)()
+    outdir = Path(args.output)
+    if args.backend == "local":
+        from .build import build
+
+        build(
+            bp,
+            args.type,
+            distro=args.distro,
+            arch=args.arch,
+            output_dir=outdir,
+            extra_args=args.extra,
+        )
+        print(f"built {args.type} into {outdir}", file=sys.stderr)
+        return 0
+
+    if args.backend == "composer":
+        from .composer import DEFAULT_SOCKET, ComposerClient
+
+        client = ComposerClient(args.socket or DEFAULT_SOCKET)
+        name = client.push(bp)
+        build_id = client.compose(name, args.type)
+        print(build_id)
+        if args.no_wait:
+            return 0
+        client.wait(build_id, poll=args.poll, on_status=_progress(build_id))
+        if not args.no_download:
+            outdir.mkdir(parents=True, exist_ok=True)
+            print(f"downloaded {client.download(build_id, outdir)}", file=sys.stderr)
+        return 0
+
+    from .hosted import HostedClient
+
+    hosted = HostedClient.from_env()
+    compose_id = hosted.compose(bp, args.type, upload_type=args.upload_type, **_hosted_kwargs(args))
+    print(compose_id)
+    if args.no_wait:
+        return 0
+    status = hosted.wait(compose_id, poll=args.poll, on_status=_progress(compose_id))
+    if args.no_download or args.upload_type != "aws.s3":
+        print(json.dumps(status.get("upload_status", {}), indent=2))
+        return 0
+    outdir.mkdir(parents=True, exist_ok=True)
+    print(f"downloaded {hosted.download(compose_id, outdir)}", file=sys.stderr)
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    if args.backend == "composer":
+        from .composer import DEFAULT_SOCKET, ComposerClient
+
+        status = ComposerClient(args.socket or DEFAULT_SOCKET).compose_status(args.id)
+    else:
+        from .hosted import HostedClient
+
+        status = HostedClient.from_env().compose_status(args.id)
+    print(json.dumps(status, indent=2))
+    return 0
+
+
+def _add_remote_args(p: argparse.ArgumentParser, backends: list[str], default: str) -> None:
+    p.add_argument(
+        "--backend",
+        choices=backends,
+        default=default,
+        help=f"where to build/push (default: {default})",
+    )
+    p.add_argument(
+        "--socket", default=None, help="osbuild-composer socket (default /run/weldr/api.socket)"
+    )
+    p.add_argument(
+        "--distro", help="distro override (hosted: required unless the blueprint sets one)"
+    )
+    p.add_argument("--arch", help="architecture (default: the blueprint's, else x86_64)")
+    p.add_argument(
+        "--lossy",
+        action="store_true",
+        help="hosted: drop settings the service can't express instead of failing",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="bpkit", description="Render Python-defined image-builder blueprints to TOML."
@@ -213,16 +361,81 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--no-mode", action="store_true", help="don't copy file modes from disk")
     o.add_argument("--no-policy", action="store_true", help="skip image-builder path checks")
     o.set_defaults(func=cmd_overlay)
+
+    im = sub.add_parser(
+        "import",
+        help="generate Python classes from existing TOML blueprints",
+        description="Turn blueprint TOML into a bpkit module. With several blueprints, "
+        "--base NAME factors what they share into an abstract base class.",
+    )
+    im.add_argument("files", nargs="*", help="blueprint TOML files")
+    im.add_argument("-o", "--output", help="write the module here (default: stdout)")
+    im.add_argument("--base", help="factor common settings into an abstract class of this name")
+    im.add_argument("--overlay-dir", help="write inline file contents here and use Overlay(...)")
+    im.add_argument(
+        "--from-composer",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="also import a blueprint stored in osbuild-composer",
+    )
+    im.add_argument("--socket", default=None, help="osbuild-composer socket")
+    im.add_argument("--force", action="store_true", help="overwrite -o if it exists")
+    im.set_defaults(func=cmd_import)
+
+    pu = sub.add_parser("push", help="upload a blueprint to osbuild-composer or the hosted service")
+    pu.add_argument("target", metavar="module:Class")
+    _add_remote_args(pu, ["composer", "hosted"], "composer")
+    pu.add_argument(
+        "--type",
+        action="append",
+        default=[],
+        help="hosted: image type(s) to store with the blueprint",
+    )
+    pu.set_defaults(func=cmd_push)
+
+    b = sub.add_parser(
+        "build",
+        help="build an image locally, via osbuild-composer, or on the hosted service",
+        description="local runs `image-builder build` (extra image-builder args go after --); "
+        "composer pushes the blueprint, "
+        "composes, waits and downloads; hosted composes on console.redhat.com "
+        "(credentials from RH_OFFLINE_TOKEN or RH_CLIENT_ID/RH_CLIENT_SECRET).",
+    )
+    b.add_argument("target", metavar="module:Class")
+    b.add_argument("-t", "--type", required=True, help="image type, e.g. qcow2, ami, guest-image")
+    b.add_argument("-o", "--output", default=".", help="output directory (default: .)")
+    _add_remote_args(b, ["local", "composer", "hosted"], "local")
+    b.add_argument("--upload-type", default="aws.s3", help="hosted upload target (default aws.s3)")
+    b.add_argument("--no-wait", action="store_true", help="print the compose id and exit")
+    b.add_argument("--no-download", action="store_true", help="don't download the result")
+    b.add_argument("--poll", type=float, default=15, help="seconds between status checks")
+    b.set_defaults(func=cmd_build)
+
+    st = sub.add_parser("status", help="show a compose's status")
+    st.add_argument("id")
+    st.add_argument("--backend", choices=["composer", "hosted"], default="composer")
+    st.add_argument("--socket", default=None)
+    st.set_defaults(func=cmd_status)
     return p
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    extra: list[str] = []
+    if "--" in argv:  # `bpkit build ... -- --with-manifest` passes args to image-builder
+        cut = argv.index("--")
+        argv, extra = argv[:cut], argv[cut + 1 :]
     args = build_parser().parse_args(argv)
+    args.extra = extra
     try:
         return int(args.func(args))
     except CLIError as e:
         print(f"bpkit: error: {e}", file=sys.stderr)
         return 2
+    except RuntimeError as e:  # ComposerError, HostedError, BuildError
+        print(f"bpkit: error: {e}", file=sys.stderr)
+        return 1
     except (TypeError, ValueError) as e:
         # Blueprint declaration errors surface here on import.
         print(f"bpkit: error: {type(e).__name__}: {e}", file=sys.stderr)

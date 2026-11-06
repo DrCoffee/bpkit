@@ -6,9 +6,11 @@
 `Blueprint` is the base class. The models (`Package`, `User`, `File`,
 `Services`, …) are re-exported here; see `bpkit.models` for every field.
 `bpkit.overlay` covers overlay options and `bpkit.cli` the commands.
+`bpkit.importer`, `bpkit.build`, `bpkit.composer` and `bpkit.hosted`
+handle importing TOML and building images.
 """
 
-from . import cli, markers, models, overlay
+from . import build, cli, composer, hosted, importer, markers, models, overlay
 from .blueprint import Blueprint, BlueprintError, kebab_case
 from .markers import Remove, Replace, Unset
 from .merge import KeyedList, MergeError, StrSet
@@ -70,7 +72,11 @@ __all__ = [
     "StrSet",
     "Unset",
     "User",
+    "build",
     "cli",
+    "composer",
+    "hosted",
+    "importer",
     "kebab_case",
     "markers",
     "models",
