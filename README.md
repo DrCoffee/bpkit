@@ -303,6 +303,12 @@ OSV.dev (RHEL, AlmaLinux and Rocky Linux). Every finding has a stable code
 set the value, and can be silenced per class with
 `AUDIT_IGNORE = ["BP011"]`.
 
+In CI, [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs ruff, the
+tests on Python 3.11 to 3.13, and `bpkit audit` on `AUDIT_TARGETS` for every
+push to `main` and every pull request. The audit report goes to the job
+summary and a JSON artifact. Set `AUDIT_ARGS: --strict` to fail on warnings
+too.
+
 ## Importing and building
 
 ```bash
