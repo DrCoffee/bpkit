@@ -305,7 +305,7 @@ bpkit status <id> [--backend hosted]
 ## Docs
 
 The usage guide is [`docs/guide.md`](docs/guide.md). Published docs, with the
-API reference: <https://drcoffee.github.io/osbuilder-py-test/>.
+API reference: <https://drcoffee.github.io/bpkit/>.
 
 # Contributing
 
@@ -326,13 +326,18 @@ If `image-builder` is on `PATH`, an integration test also runs
 
 ## Building the docs
 
-pdoc renders `docs/guide.md` as the landing page, with the API reference
-after it:
+pdoc renders the intro of `docs/guide.md` as the landing page, each section
+between `<!-- page: … -->` markers as its own page (via the stub modules in
+`docs/guide/`), and one API page per module:
 
 ```bash
-pdoc bpkit                     # live preview in the browser
-pdoc -o docs/html bpkit        # static HTML
+pdoc bpkit ./docs/guide                  # live preview in the browser
+pdoc -o docs/html bpkit ./docs/guide     # static HTML
 ```
+
+To add a guide page, put a `<!-- page: name -->` marker in `docs/guide.md`,
+copy a stub in `docs/guide/` (fixing its `start-after`/`end-before`), and link
+it from the list in `src/bpkit/__init__.py`.
 
 The [Docs workflow](.github/workflows/docs.yml) rebuilds and deploys the site
 on every push to `main`. Pull requests build the site and run the guide's

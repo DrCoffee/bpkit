@@ -33,12 +33,14 @@ jobs:
       - name: Check the guide's examples still run
         run: pytest -q tests/test_docs.py
 
+      # docs/guide holds one stub module per guide page (slices of docs/guide.md).
       - name: Build site
-        run: >
-          pdoc bpkit
-          --output-directory site
-          --edit-url bpkit=https://github.com/${{ github.repository }}/blob/${{ github.sha }}/src/bpkit/
-          --footer-text "bpkit ${{ github.sha }}"
+        run: |
+          pdoc bpkit ./docs/guide \
+            --output-directory site \
+            --edit-url bpkit=https://github.com/${{ github.repository }}/blob/${{ github.sha }}/src/bpkit/ \
+            --footer-text "bpkit ${{ github.sha }}"
+          echo '<meta http-equiv="refresh" content="0; url=bpkit.html">' > site/index.html
 
       - uses: actions/upload-pages-artifact@v4
         with:

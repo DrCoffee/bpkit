@@ -1,13 +1,23 @@
 """
 .. include:: ../../docs/guide.md
+   :end-before: <!-- page: basics -->
+
+## Guide
+
+1. [Writing blueprints](guide/basics.html): classes, inheritance, removing and replacing values
+2. [Overlays](guide/overlays.html): config files from a directory
+3. [Instances and debugging](guide/instances.html): kwargs, `customize()`, `explain()`
+4. [CLI, import and builds](guide/cli.html): render, diff, import, build images
+5. [Auditing](guide/audit.html)
+6. [Gotchas](guide/gotchas.html)
 
 ## API
 
-`Blueprint` is the base class. The models (`Package`, `User`, `File`,
-`Services`, …) are re-exported here; see `bpkit.models` for every field.
-`bpkit.overlay` covers overlay options and `bpkit.cli` the commands.
-`bpkit.importer`, `bpkit.build`, `bpkit.composer` and `bpkit.hosted`
-handle importing TOML and building images.
+`Blueprint` is the base class and the models (`Package`, `User`, `File`,
+`Services`, …) are importable from `bpkit`. Each module has its own page:
+`bpkit.blueprint`, `bpkit.models` (every field), `bpkit.overlay`, `bpkit.markers`,
+`bpkit.merge`, `bpkit.render`, `bpkit.cli`, `bpkit.importer`, `bpkit.build`,
+`bpkit.composer`, `bpkit.hosted` and `bpkit.audit`.
 """
 
 from . import audit, build, cli, composer, hosted, importer, markers, models, overlay
@@ -40,46 +50,3 @@ from .overlay import Overlay, OverlayError
 
 __version__ = "0.1.0"
 
-# Submodules are listed so pdoc documents them.
-__all__ = [
-    "AnacondaModules",
-    "Blueprint",
-    "BlueprintError",
-    "Container",
-    "Directory",
-    "EnabledModule",
-    "File",
-    "Filesystem",
-    "Firewall",
-    "FirewallServices",
-    "FirewallZone",
-    "Group",
-    "Installer",
-    "Kernel",
-    "KeyedList",
-    "Kickstart",
-    "Locale",
-    "MergeError",
-    "Overlay",
-    "OverlayError",
-    "Package",
-    "PackageGroup",
-    "Remove",
-    "Replace",
-    "Repository",
-    "SSHKey",
-    "Services",
-    "StrSet",
-    "Unset",
-    "User",
-    "audit",
-    "build",
-    "cli",
-    "composer",
-    "hosted",
-    "importer",
-    "kebab_case",
-    "markers",
-    "models",
-    "overlay",
-]

@@ -6,6 +6,7 @@ their parents, and bpkit renders each class to blueprint TOML for
 pip install osbuild-bpkit      # or: pip install -e ".[dev]" from a checkout
 ```
 
+<!-- page: basics -->
 ## 1. A first blueprint
 
 ```python
@@ -103,6 +104,7 @@ assert [p.name for p in Minimal().packages] == ["nginx"]
 an `abstract=True` mixin: it can remove things it doesn't inherit, and the
 check runs when a concrete class uses it.
 
+<!-- page: overlays -->
 ## 4. Config files from a directory (overlays)
 
 Lay files out as they should appear on the image:
@@ -160,6 +162,7 @@ Symlinks, binary files, and paths that image-builder refuses (`/usr` outside
 Options: `prefix="/etc/app"`, `user=`, `group=`, `file_mode=`, `dir_mode=`,
 `directories="all"|"none"`, `exclude=[...]`, `check_policy=False`.
 
+<!-- page: instances -->
 ## 5. Instances: kwargs and `customize()`
 
 Constructor kwargs merge the same way a subclass would:
@@ -217,6 +220,7 @@ packages:
 `explain()` with no field covers everything. It works on a class too
 (`App.explain()`), which skips kwargs and `customize()`.
 
+<!-- page: cli -->
 ## 7. CLI
 
 Targets are `module.path:Class` or `path/to/file.py:Class`.
@@ -288,6 +292,7 @@ and stops with a list of anything the service can't express (user shells,
 The same operations are available from Python: `bpkit.build.build()`,
 `bpkit.composer.ComposerClient`, `bpkit.hosted.HostedClient`.
 
+<!-- page: audit -->
 ## 11. Auditing
 
 ```
@@ -331,6 +336,7 @@ osbuild-composer depsolve (`--depsolve composer`) or from
 output (`--packages FILE`). They are checked against OSV.dev, which covers
 RHEL, AlmaLinux and Rocky Linux. `bpkit.audit` lists every code.
 
+<!-- page: gotchas -->
 ## Gotchas
 
 - **Unknown fields:** a lowercase class attribute that isn't a blueprint field
