@@ -330,9 +330,8 @@ class Blueprint:
                 value = empty if norm is Unset else apply_value(spec, empty, Replace(norm))
             except MergeError as e:
                 raise BlueprintError(f"{display_name(type(self))}.{name}: {e}") from None
-        elif name in IDENTITY:
-            if value is not None and not isinstance(value, str):
-                raise BlueprintError(f"{name} must be a string, got {value!r}")
+        elif name in IDENTITY and value is not None and not isinstance(value, str):
+            raise BlueprintError(f"{name} must be a string, got {value!r}")
         object.__setattr__(self, name, value)
 
     # -- output -------------------------------------------------------------
