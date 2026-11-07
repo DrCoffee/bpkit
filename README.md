@@ -51,11 +51,12 @@ bp.write("staging-web.toml")
 See [`examples/fleet.py`](examples/fleet.py) for a fuller example and
 [`tests/golden/`](tests/golden) for what it renders to.
 
+# Usage
+
 ## Install
 
 ```bash
-pip install -e ".[dev]"     # Python ≥ 3.11; deps: pydantic>=2.11, tomli-w
-pytest && ruff check .
+pip install .     # Python ≥ 3.11; deps: pydantic>=2.11, tomli-w
 ```
 
 ## How resolution works
@@ -244,42 +245,6 @@ bpkit overlay overlays/web [--prefix /] [--directories leaves|all|none]
 Mark bases and mixins `abstract=True` so bulk render skips them. Bulk render
 only picks up classes **defined** in the module, not ones it imports.
 
-## Design notes
-
-- Field names and types were checked against `osbuild/blueprint`
-  (`pkg/blueprint`, which `osbuild/images` now imports). The path policies
-  for overlays come from `osbuild/images` `pkg/policies`.
-- Lowercase public class attributes that aren't blueprint fields are an error
-  (`pakages = [...]` → "did you mean 'packages'?"). Use `UPPER_CASE` or
-  `_private` names for your own attributes.
-- `name`, `description` and `version` are per class, not inherited.
-
-## Docs
-
-The usage guide is [`docs/guide.md`](docs/guide.md). pdoc renders it as the
-landing page, with the API reference after it:
-
-```bash
-pdoc bpkit                     # live preview in the browser
-pdoc -o docs/html bpkit        # static HTML
-```
-
-Published docs: <https://drcoffee.github.io/osbuilder-py-test/>. The
-[Docs workflow](.github/workflows/docs.yml) rebuilds and deploys them on every
-push to `main`. Pull requests build the site and run the guide's examples
-without deploying.
-
-`tests/test_docs.py` runs every Python block in the guide and checks the
-`explain()` sample against real output, so the guide can't drift from the code.
-
-## Tests
-
-`pytest` runs unit, round-trip (`tomllib`), golden-file and CLI tests.
-Regenerate the golden files with `BPKIT_UPDATE_GOLDEN=1 pytest tests/test_golden.py`.
-If `image-builder` is on `PATH`, an integration test also runs
-`image-builder manifest qcow2 --blueprint …` on each example; set
-`BPKIT_TEST_DISTRO` to choose the distro (default `fedora-42`).
-
 ## Auditing
 
 ```bash
@@ -302,12 +267,6 @@ OSV.dev (RHEL, AlmaLinux and Rocky Linux). Every finding has a stable code
 (the table is in the `bpkit.audit` docs), names the class and overlay that
 set the value, and can be silenced per class with
 `AUDIT_IGNORE = ["BP011"]`.
-
-In CI, [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs ruff, the
-tests on Python 3.11 to 3.13, and `bpkit audit` on `AUDIT_TARGETS` for every
-push to `main` and every pull request. The audit report goes to the job
-summary and a JSON artifact. Set `AUDIT_ARGS: --strict` to fail on warnings
-too.
 
 ## Importing and building
 
@@ -332,3 +291,59 @@ bpkit status <id> [--backend hosted]
   `--lossy`.
 - **No extra dependencies:** the clients only use the standard library.
   They are tested against fake servers, not the live services.
+
+## Design notes
+
+- Field names and types were checked against `osbuild/blueprint`
+  (`pkg/blueprint`, which `osbuild/images` now imports). The path policies
+  for overlays come from `osbuild/images` `pkg/policies`.
+- Lowercase public class attributes that aren't blueprint fields are an error
+  (`pakages = [...]` → "did you mean 'packages'?"). Use `UPPER_CASE` or
+  `_private` names for your own attributes.
+- `name`, `description` and `version` are per class, not inherited.
+
+## Docs
+
+The usage guide is [`docs/guide.md`](docs/guide.md). Published docs, with the
+API reference: <https://drcoffee.github.io/osbuilder-py-test/>.
+
+# Contributing
+
+## Setup
+
+```bash
+pip install -e ".[dev]"
+pytest && ruff check .
+```
+
+## Tests
+
+`pytest` runs unit, round-trip (`tomllib`), golden-file and CLI tests.
+Regenerate the golden files with `BPKIT_UPDATE_GOLDEN=1 pytest tests/test_golden.py`.
+If `image-builder` is on `PATH`, an integration test also runs
+`image-builder manifest qcow2 --blueprint …` on each example; set
+`BPKIT_TEST_DISTRO` to choose the distro (default `fedora-42`).
+
+## Building the docs
+
+pdoc renders `docs/guide.md` as the landing page, with the API reference
+after it:
+
+```bash
+pdoc bpkit                     # live preview in the browser
+pdoc -o docs/html bpkit        # static HTML
+```
+
+The [Docs workflow](.github/workflows/docs.yml) rebuilds and deploys the site
+on every push to `main`. Pull requests build the site and run the guide's
+examples without deploying.
+
+`tests/test_docs.py` runs every Python block in the guide and checks the
+`explain()` sample against real output, so the guide can't drift from the code.
+
+## CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs ruff, the tests on
+Python 3.11 to 3.13, and `bpkit audit` on `AUDIT_TARGETS` for every push to
+`main` and every pull request. The audit report goes to the job summary and a
+JSON artifact. Set `AUDIT_ARGS: --strict` to fail on warnings too.
