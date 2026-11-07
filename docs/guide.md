@@ -3,7 +3,7 @@ their parents, and bpkit renders each class to blueprint TOML for
 `image-builder` or `composer-cli`.
 
 ```
-pip install bpkit            # or: pip install -e ".[dev]" from a checkout
+pip install osbuild-bpkit      # or: pip install -e ".[dev]" from a checkout
 ```
 
 ## 1. A first blueprint
