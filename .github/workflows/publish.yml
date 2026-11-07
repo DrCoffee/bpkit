@@ -1,0 +1,47 @@
+name: Publish
+
+# Push a tag like v0.1.0 to build and upload to PyPI via trusted publishing (no API token).
+# One-time setup: add a trusted publisher on pypi.org for this repo, workflow publish.yml,
+# environment "pypi".
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Tag matches pyproject version
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "::error::tag $GITHUB_REF_NAME != v$version"; exit 1; }
+      - run: pip install -e ".[dev]" build
+      - run: pytest -q
+      - run: python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/osbuild-bpkit
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

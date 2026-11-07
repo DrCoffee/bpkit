@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "bpkit"
+name = "osbuild-bpkit"
 version = "0.1.0"
 description = "Define osbuild/image-builder blueprints as Python classes with inheritance"
 readme = "README.md"
