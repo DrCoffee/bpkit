@@ -48,4 +48,4 @@ from .models import (
 )
 from .overlay import Overlay, OverlayError
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
