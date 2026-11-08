@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from bpkit import Unset
 from bpkit.cli import load_module, module_blueprints
 
 HERE = Path(__file__).resolve().parent
@@ -46,6 +47,10 @@ def test_image_builder_accepts(cls, tmp_path):
     # The example's internal repo and container don't exist; keep the rest.
     bp.repositories.clear()
     bp.containers.clear()
+    # image-builder refuses FIPS images on a non-FIPS host (a warning it treats as fatal).
+    fips_flag = Path("/proc/sys/crypto/fips_enabled")
+    if not (fips_flag.exists() and fips_flag.read_text().strip() == "1"):
+        bp.fips = Unset
     path = bp.write(tmp_path / "bp.toml")
     result = subprocess.run(
         ["image-builder", "manifest", "qcow2", "--blueprint", str(path)],
