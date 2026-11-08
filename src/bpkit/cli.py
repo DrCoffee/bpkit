@@ -239,9 +239,24 @@ def cmd_push(args: argparse.Namespace) -> int:
     return 0
 
 
+def _repo_kwargs(args: argparse.Namespace) -> dict[str, object]:
+    """Build-repo flags for bpkit.build; None lets the blueprint's BUILD_REPOS apply."""
+    if args.backend != "local" and (args.repo or args.extra_repo or args.data_dir):
+        raise CLIError(
+            "--repo/--extra-repo/--data-dir only apply to --backend local; for "
+            "osbuild-composer put repositories/<distro>.json in /etc/osbuild-composer/"
+        )
+    return {
+        "repos": args.repo or None,
+        "extra_repos": args.extra_repo or None,
+        "data_dir": args.data_dir,
+    }
+
+
 def cmd_build(args: argparse.Namespace) -> int:
     bp = load_class(args.target)()
     outdir = Path(args.output)
+    repo_kwargs = _repo_kwargs(args)
     if args.backend == "local":
         from .build import build
 
@@ -252,6 +267,7 @@ def cmd_build(args: argparse.Namespace) -> int:
             arch=args.arch,
             output_dir=outdir,
             extra_args=args.extra,
+            **repo_kwargs,
         )
         print(f"built {args.type} into {outdir}", file=sys.stderr)
         return 0
@@ -284,6 +300,35 @@ def cmd_build(args: argparse.Namespace) -> int:
         return 0
     outdir.mkdir(parents=True, exist_ok=True)
     print(f"downloaded {hosted.download(compose_id, outdir)}", file=sys.stderr)
+    return 0
+
+
+def cmd_sbom(args: argparse.Namespace) -> int:
+    from .sbom import cyclonedx, packages_from_manifest
+
+    bp = load_class(args.target)()
+    repo_kwargs = _repo_kwargs(args)
+    if args.backend == "composer":
+        from .audit import resolve_with_composer
+        from .composer import DEFAULT_SOCKET, ComposerClient
+
+        packages = resolve_with_composer(bp, ComposerClient(args.socket or DEFAULT_SOCKET))
+    else:
+        from .build import manifest
+
+        text = manifest(
+            bp, args.type, distro=args.distro, arch=args.arch, extra_args=args.extra, **repo_kwargs
+        )
+        packages = packages_from_manifest(text)
+    fmt = args.format or ("xml" if (args.output or "").endswith(".xml") else "json")
+    bom = cyclonedx(
+        packages, name=bp.name, version=bp.version, distro=args.distro or bp.distro, fmt=fmt
+    )
+    if args.output:
+        Path(args.output).write_text(bom, encoding="utf-8")
+        print(f"wrote {len(packages)} packages to {args.output}", file=sys.stderr)
+    else:
+        sys.stdout.write(bom)
     return 0
 
 
@@ -363,6 +408,26 @@ def _add_remote_args(p: argparse.ArgumentParser, backends: list[str], default: s
         action="store_true",
         help="hosted: drop settings the service can't express instead of failing",
     )
+
+
+def _add_repo_args(p: argparse.ArgumentParser) -> None:
+    g = p.add_argument_group("build repositories (local backend)")
+    g.add_argument(
+        "--repo",
+        action="append",
+        default=[],
+        metavar="URL",
+        help="use this repo in place of the distro's standard ones (repeatable; "
+        "overrides the blueprint's BUILD_REPOS)",
+    )
+    g.add_argument(
+        "--extra-repo",
+        action="append",
+        default=[],
+        metavar="URL",
+        help="add a repo alongside the standard ones (repeatable)",
+    )
+    g.add_argument("--data-dir", help="image-builder data dir with repositories/<distro>.json")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -454,7 +519,28 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--no-wait", action="store_true", help="print the compose id and exit")
     b.add_argument("--no-download", action="store_true", help="don't download the result")
     b.add_argument("--poll", type=float, default=15, help="seconds between status checks")
+    _add_repo_args(b)
     b.set_defaults(func=cmd_build)
+
+    sb = sub.add_parser(
+        "sbom",
+        help="write a CycloneDX SBOM of the packages an image installs",
+        description="Depsolve with `image-builder manifest` (default) or osbuild-composer "
+        "and write every installed package as CycloneDX 1.6, JSON or XML. "
+        "Extra image-builder args go after --.",
+    )
+    sb.add_argument("target", metavar="module:Class")
+    sb.add_argument("-t", "--type", default="qcow2", help="image type (default: qcow2)")
+    sb.add_argument(
+        "--format", choices=["json", "xml"], help="default: xml if -o ends in .xml, else json"
+    )
+    sb.add_argument("-o", "--output", help="write here instead of stdout")
+    sb.add_argument("--backend", choices=["local", "composer"], default="local")
+    sb.add_argument("--socket", default=None, help="osbuild-composer socket")
+    sb.add_argument("--distro", help="distro override (default: the blueprint's)")
+    sb.add_argument("--arch", help="architecture")
+    _add_repo_args(sb)
+    sb.set_defaults(func=cmd_sbom)
 
     a = sub.add_parser(
         "audit",

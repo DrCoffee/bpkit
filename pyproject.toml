@@ -40,4 +40,6 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "N"]
 ignore = ["RUF012"]
 
 [tool.ruff.lint.per-file-ignores]
+# Re-exports; no __all__ so pdoc gives each module its own page instead of inlining them.
+"src/bpkit/__init__.py" = ["F401"]
 "tests/**" = ["N801", "N806", "RUF012", "RUF059"]

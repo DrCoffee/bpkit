@@ -107,6 +107,7 @@ class ResolvedPackage:
     release: str
     arch: str | None = None
     source: str | None = None  # source package name, if known
+    sha256: str | None = None  # RPM file digest, if known (image-builder manifests)
 
     @property
     def evr(self) -> str:

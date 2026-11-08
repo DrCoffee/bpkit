@@ -10,6 +10,25 @@
 The blueprint is written to a temporary TOML file and passed with
 ``--blueprint``. ``distro`` defaults to the blueprint's ``distro`` field, and
 ``image-builder`` falls back to the host distro if neither is set.
+
+Local repositories and mirrors
+------------------------------
+
+``repos`` replaces the distro's standard repositories for the build
+(``--force-repo``); ``extra_repos`` adds to them (``--extra-repo``). Both take
+base URLs (``https://``, ``http://`` or ``file://``) and are used only to fetch
+packages: they are not written into the image. Set them once for a hierarchy
+with class attributes::
+
+    class AirGapped(Blueprint):
+        BUILD_REPOS = [
+            "http://mirror.lan/fedora/42/Everything/x86_64/os/",
+            "http://mirror.lan/fedora/updates/42/Everything/x86_64/",
+        ]
+
+Subclasses inherit them like any class attribute; ``repos=`` / ``bpkit build
+--repo`` override them. ``data_dir`` passes ``--data-dir`` for full control via
+``repositories/<distro>.json`` files.
 """
 
 from __future__ import annotations
@@ -60,9 +79,18 @@ def image_builder_command(
     output_dir: str | Path | None = None,
     extra_args: Sequence[str] = (),
     executable: str = "image-builder",
+    repos: Sequence[str] = (),
+    extra_repos: Sequence[str] = (),
+    data_dir: str | Path | None = None,
 ) -> list[str]:
     """The argv for ``image-builder <subcommand> <type> --blueprint …``."""
     cmd = [executable, subcommand, image_type, "--blueprint", str(blueprint_path)]
+    for url in repos:
+        cmd += ["--force-repo", url]
+    for url in extra_repos:
+        cmd += ["--extra-repo", url]
+    if data_dir is not None:
+        cmd += ["--data-dir", str(data_dir)]
     if distro:
         cmd += ["--distro", distro]
     if arch:
@@ -76,6 +104,22 @@ def _distro_of(bp: Blueprint | Any, distro: str | None) -> str | None:
     return distro or getattr(bp, "distro", None)
 
 
+def _repo_args(
+    bp: Blueprint | Any,
+    repos: Sequence[str] | None,
+    extra_repos: Sequence[str] | None,
+    data_dir: str | Path | None,
+) -> dict[str, Any]:
+    """Explicit arguments win over the blueprint's BUILD_REPOS / BUILD_EXTRA_REPOS."""
+    return {
+        "repos": list(getattr(bp, "BUILD_REPOS", ()) if repos is None else repos),
+        "extra_repos": list(
+            getattr(bp, "BUILD_EXTRA_REPOS", ()) if extra_repos is None else extra_repos
+        ),
+        "data_dir": data_dir,
+    }
+
+
 def build(
     blueprint: Blueprint | Any,
     image_type: str,
@@ -86,6 +130,9 @@ def build(
     extra_args: Sequence[str] = (),
     executable: str | None = None,
     capture: bool = False,
+    repos: Sequence[str] | None = None,
+    extra_repos: Sequence[str] | None = None,
+    data_dir: str | Path | None = None,
 ) -> Path:
     """Run ``image-builder build`` and return the output directory.
 
@@ -108,6 +155,7 @@ def build(
             output_dir=out,
             extra_args=extra_args,
             executable=exe,
+            **_repo_args(blueprint, repos, extra_repos, data_dir),
         )
         result = subprocess.run(cmd, capture_output=capture, text=True, check=False)
     if result.returncode != 0:
@@ -127,6 +175,9 @@ def manifest(
     arch: str | None = None,
     extra_args: Sequence[str] = (),
     executable: str | None = None,
+    repos: Sequence[str] | None = None,
+    extra_repos: Sequence[str] | None = None,
+    data_dir: str | Path | None = None,
 ) -> str:
     """Run ``image-builder manifest`` and return the osbuild manifest (JSON text)."""
     exe = find_image_builder(executable)
@@ -142,6 +193,7 @@ def manifest(
             arch=arch,
             extra_args=extra_args,
             executable=exe,
+            **_repo_args(blueprint, repos, extra_repos, data_dir),
         )
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:

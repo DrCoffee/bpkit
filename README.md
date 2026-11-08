@@ -268,6 +268,17 @@ OSV.dev (RHEL, AlmaLinux and Rocky Linux). Every finding has a stable code
 set the value, and can be silenced per class with
 `AUDIT_IGNORE = ["BP011"]`.
 
+## SBOMs
+
+```bash
+bpkit sbom fleet.py:WebServer -t qcow2 [--format json|xml] [-o web.cdx.json]
+bpkit sbom fleet.py:WebServer --backend composer
+```
+
+Writes a CycloneDX 1.6 SBOM (JSON or XML) of every package the image
+installs. Packages come from an `image-builder manifest` depsolve (no build,
+no root) with purls and SHA-256 digests, or from an osbuild-composer depsolve.
+
 ## Importing and building
 
 ```bash
@@ -279,7 +290,17 @@ bpkit build fleet.py:WebServer -t qcow2 --backend composer       # osbuild-compo
 bpkit build fleet.py:WebServer -t guest-image --backend hosted   # console.redhat.com
 bpkit push fleet.py:WebServer [--backend hosted --type guest-image]
 bpkit status <id> [--backend hosted]
+
+bpkit build fleet.py:WebServer -t qcow2 --repo http://mirror.lan/rhel9/baseos/  # mirror only
+bpkit build fleet.py:WebServer -t qcow2 --extra-repo file:///srv/repos/internal/
 ```
+
+- **Local repos and mirrors:** `--repo URL` (repeatable) replaces the distro's
+  standard repositories for the build and `--extra-repo` adds one. Set
+  defaults for a hierarchy with `BUILD_REPOS = [...]` /
+  `BUILD_EXTRA_REPOS = [...]` on a class. They are only used to fetch
+  packages and aren't written into the image. They apply to the local
+  backend; `--data-dir` passes image-builder custom `repositories/*.json`.
 
 - **Import:** you get one class per blueprint, and `--base` factors the
   shared settings into an abstract class. The output renders back to the

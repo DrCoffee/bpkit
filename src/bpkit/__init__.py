@@ -8,7 +8,7 @@
 2. [Overlays](guide/overlays.html): config files from a directory
 3. [Instances and debugging](guide/instances.html): kwargs, `customize()`, `explain()`
 4. [CLI, import and builds](guide/cli.html): render, diff, import, build images
-5. [Auditing](guide/audit.html)
+5. [Auditing and SBOMs](guide/audit.html): checks, advisories, CycloneDX output
 6. [Gotchas](guide/gotchas.html)
 
 ## API
@@ -17,10 +17,10 @@
 `Services`, …) are importable from `bpkit`. Each module has its own page:
 `bpkit.blueprint`, `bpkit.models` (every field), `bpkit.overlay`, `bpkit.markers`,
 `bpkit.merge`, `bpkit.render`, `bpkit.cli`, `bpkit.importer`, `bpkit.build`,
-`bpkit.composer`, `bpkit.hosted` and `bpkit.audit`.
+`bpkit.composer`, `bpkit.hosted`, `bpkit.audit` and `bpkit.sbom`.
 """
 
-from . import audit, build, cli, composer, hosted, importer, markers, models, overlay
+from . import audit, build, cli, composer, hosted, importer, markers, models, overlay, sbom
 from .blueprint import Blueprint, BlueprintError, kebab_case
 from .markers import Remove, Replace, Unset
 from .merge import KeyedList, MergeError, StrSet
@@ -49,4 +49,3 @@ from .models import (
 from .overlay import Overlay, OverlayError
 
 __version__ = "0.1.0"
-

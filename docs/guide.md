@@ -292,6 +292,36 @@ and stops with a list of anything the service can't express (user shells,
 The same operations are available from Python: `bpkit.build.build()`,
 `bpkit.composer.ComposerClient`, `bpkit.hosted.HostedClient`.
 
+### Local repositories and mirrors
+
+To build from your own mirror, or an air-gapped repo, in place of the distro's
+standard repositories, pass `--repo` (repeatable). `--extra-repo` adds a repo
+alongside the standard ones:
+
+```
+bpkit build fleet.py:WebServer -t qcow2 \
+    --repo http://mirror.lan/rhel9/baseos/ --repo http://mirror.lan/rhel9/appstream/
+bpkit build fleet.py:WebServer -t qcow2 --extra-repo file:///srv/repos/internal/
+```
+
+Or set them once for a hierarchy with `BUILD_REPOS` / `BUILD_EXTRA_REPOS`.
+Subclasses inherit them, and `--repo` overrides them:
+
+```python
+class AirGapped(WebServer):
+    BUILD_REPOS = [
+        "http://mirror.lan/rhel9/baseos/",
+        "http://mirror.lan/rhel9/appstream/",
+    ]
+```
+
+These repos are only used to fetch packages. They aren't written into the
+image; use `repositories` for that. `--data-dir` passes image-builder a
+directory of `repositories/<distro>.json` files for full control (metalinks,
+GPG keys). This all applies to the **local** backend. For osbuild-composer,
+put `repositories/<distro>.json` overrides in `/etc/osbuild-composer/` on the
+server.
+
 <!-- page: audit -->
 ## 11. Auditing
 
@@ -335,6 +365,24 @@ osbuild-composer depsolve (`--depsolve composer`) or from
 `rpm -qa --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE} %{SOURCERPM}\n'`
 output (`--packages FILE`). They are checked against OSV.dev, which covers
 RHEL, AlmaLinux and Rocky Linux. `bpkit.audit` lists every code.
+
+## 12. SBOMs
+
+`bpkit sbom` writes a CycloneDX 1.6 SBOM of every package the image installs:
+
+```
+bpkit sbom fleet.py:WebServer -t qcow2                    # JSON to stdout
+bpkit sbom fleet.py:WebServer --format xml -o web.cdx.xml # XML (also implied by .xml)
+bpkit sbom fleet.py:WebServer --repo http://mirror.lan/rhel9/baseos/ ...
+bpkit sbom fleet.py:WebServer --backend composer          # depsolve via osbuild-composer
+```
+
+By default the package set comes from `image-builder manifest`, so nothing is
+built and no root is needed. It uses the same repositories a build would,
+including `--repo` and `BUILD_REPOS`. Each RPM is a `library` component with a
+`pkg:rpm/<vendor>/…` purl and the RPM's SHA-256. `--backend composer` gets
+the set from osbuild-composer's depsolve, which includes epochs but not file
+digests. `bpkit.sbom` has the Python API.
 
 <!-- page: gotchas -->
 ## Gotchas
