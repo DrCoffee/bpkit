@@ -329,6 +329,16 @@ def test_image_builder_command():
     ]
 
 
+def test_string_build_repos_is_one_url(fake_image_builder, tmp_path):
+    class Mirror(Web):
+        BUILD_REPOS = "http://mirror.lan/os/"
+
+    build(Mirror(), "qcow2", output_dir=tmp_path / "out", extra_repos="file:///srv/extra/")
+    argv = fake_image_builder()["argv"]
+    assert argv[argv.index("--force-repo") + 1] == "http://mirror.lan/os/"
+    assert argv.count("--force-repo") == argv.count("--extra-repo") == 1
+
+
 def test_local_build(fake_image_builder, tmp_path):
     out = build(Web(), "qcow2", output_dir=tmp_path / "out")
     call = fake_image_builder()

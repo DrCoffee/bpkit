@@ -384,8 +384,9 @@ def _normalize_plain(spec: FieldSpec, raw: Any) -> Any:
         for item in raw:
             if not isinstance(item, (str, Remove)):
                 raise MergeError(f"expected a string, got {type(item).__name__}: {item!r}")
-            if item not in items:
-                items.append(item)
+            # ["audit=1 quiet"] means the same as "audit=1 quiet" for kernel_append.
+            parts = item.split() if spec.join and isinstance(item, str) else [item]
+            items.extend(p for p in parts if p not in items)
         return items
 
     if spec.kind == "struct":
@@ -428,7 +429,7 @@ def apply_value(spec: FieldSpec, acc: Any, layer: Any, *, strict: bool = True) -
         if layer is Unset:
             return {}
         if isinstance(layer, Replace):
-            return copy.deepcopy(layer.value)
+            return deep_merge({}, layer.value)  # also drops any nested Unset
         return deep_merge(acc, layer)
 
     raise AssertionError(spec.kind)  # pragma: no cover
@@ -536,8 +537,9 @@ def deep_merge(base: dict[str, Any], over: Mapping[str, Any]) -> dict[str, Any]:
     for k, v in over.items():
         if v is Unset:
             out.pop(k, None)
-        elif isinstance(v, Mapping) and isinstance(out.get(k), dict):
-            out[k] = deep_merge(out[k], v)
+        elif isinstance(v, Mapping):
+            # Recurse even when the base has no table here, so nested Unsets go.
+            out[k] = deep_merge(out[k] if isinstance(out.get(k), dict) else {}, v)
         else:
             out[k] = copy.deepcopy(v)
     return out

@@ -247,7 +247,7 @@ class Blueprint:
             "version": own.get("version", DEFAULT_VERSION),
         }
         for key, val in identity.items():
-            if val is not None and not isinstance(val, str):
+            if not isinstance(val, str) and (val is not None or key == "name"):
                 raise BlueprintError(f"{owner}.{key} must be a string, got {val!r}")
         cls._identity = identity
 
@@ -280,7 +280,7 @@ class Blueprint:
         for key in IDENTITY:
             if key in kwargs:
                 val = kwargs.pop(key)
-                if val is not None and not isinstance(val, str):
+                if not isinstance(val, str) and (val is not None or key == "name"):
                     raise BlueprintError(f"{owner}: {key} must be a string, got {val!r}")
                 identity[key] = val
         unknown = [k for k in kwargs if k not in FIELDS and k != OVERLAY]
@@ -330,8 +330,20 @@ class Blueprint:
                 value = empty if norm is Unset else apply_value(spec, empty, Replace(norm))
             except MergeError as e:
                 raise BlueprintError(f"{display_name(type(self))}.{name}: {e}") from None
-        elif name in IDENTITY and value is not None and not isinstance(value, str):
-            raise BlueprintError(f"{name} must be a string, got {value!r}")
+        elif name in IDENTITY:
+            if not isinstance(value, str) and (value is not None or name == "name"):
+                raise BlueprintError(f"{name} must be a string, got {value!r}")
+        elif _is_declaration(name, value):
+            # Same rule as the class body, so a typo in customize() isn't ignored.
+            hint = (
+                "overlays are read when the class is defined; use self.files.add()"
+                if name == OVERLAY
+                else "Use an _underscore or UPPER_CASE name for your own attributes."
+            )
+            raise BlueprintError(
+                f"{display_name(type(self))}: unknown blueprint field {name!r}"
+                f"{suggest_field(name)}. {hint}"
+            )
         object.__setattr__(self, name, value)
 
     # -- output -------------------------------------------------------------

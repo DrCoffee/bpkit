@@ -111,11 +111,11 @@ def _repo_args(
     data_dir: str | Path | None,
 ) -> dict[str, Any]:
     """Explicit arguments win over the blueprint's BUILD_REPOS / BUILD_EXTRA_REPOS."""
-    return {
-        "repos": list(getattr(bp, "BUILD_REPOS", ()) if repos is None else repos),
-        "extra_repos": list(
-            getattr(bp, "BUILD_EXTRA_REPOS", ()) if extra_repos is None else extra_repos
-        ),
+    repos = getattr(bp, "BUILD_REPOS", ()) if repos is None else repos
+    extra_repos = getattr(bp, "BUILD_EXTRA_REPOS", ()) if extra_repos is None else extra_repos
+    return {  # a bare string is one URL, not a sequence of characters
+        "repos": [repos] if isinstance(repos, str) else list(repos),
+        "extra_repos": [extra_repos] if isinstance(extra_repos, str) else list(extra_repos),
         "data_dir": data_dir,
     }
 

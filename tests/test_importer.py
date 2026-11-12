@@ -155,3 +155,28 @@ def test_cli_import(tmp_path, capsys):
     # the generated module renders through the normal CLI
     assert main(["render", f"{out}:WebServer"]) == 0
     assert 'name = "web-server"' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "description", ['Say "hi"', "Path C:\\new\\table", "ends with \\", " padded "]
+)
+def test_awkward_descriptions_round_trip(description, tmp_path):
+    module = run_module(import_blueprints([{"name": "web", "description": description}]), tmp_path)
+    assert module.Web().description == description
+
+
+def test_overlay_dir_is_sanitised_and_keeps_odd_modes(tmp_path):
+    out = tmp_path / "pkg"
+    overlays = out / "overlays"
+    overlays.mkdir(parents=True)
+    files = [
+        {"path": "/etc/x", "data": "x\n"},
+        {"path": "/etc/sudoers.d/ops", "data": "ops ALL=(ALL) ALL\n", "mode": "0440"},
+    ]
+    original = {"name": "../../escaped", "customizations": {"files": files}}
+    source = import_blueprints([original], overlay_dir=overlays, module_dir=out)
+    written = sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file())
+    assert written == ["pkg/overlays/escaped/etc/x"]  # nothing outside overlay_dir
+    # 0440 can't survive a git checkout, so that file stays an explicit File
+    got = {f.path: f.mode for f in run_module(source, out).Escaped().files}
+    assert got == {"/etc/x": "0644", "/etc/sudoers.d/ops": "0440"}

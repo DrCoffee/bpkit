@@ -155,3 +155,28 @@ def test_equality_and_repr():
     assert Web() == Web()
     assert Web() != Web(hostname="other")
     assert repr(Web()) == "<Web 'web' v0.0.1>"
+
+
+def test_unknown_attribute_on_instance_raises():
+    class Typo(Web):
+        def customize(self) -> None:
+            self.pakages = ["htop"]
+
+    with pytest.raises(BlueprintError, match="did you mean 'packages'"):
+        Typo()
+    bp = Web()
+    with pytest.raises(BlueprintError, match="overlays are read when the class is defined"):
+        bp.overlay = "overlays/x"
+    bp._scratch = bp.NOTE = 1  # private and UPPER_CASE names are the user's
+    bp.description = None
+
+
+def test_name_is_required():
+    with pytest.raises(BlueprintError, match="name must be a string"):
+        Web(name=None)
+    with pytest.raises(BlueprintError, match="name must be a string"):
+        Web().name = None
+    with pytest.raises(BlueprintError, match="name must be a string"):
+
+        class Nameless(Blueprint):
+            name = None

@@ -78,6 +78,11 @@ def test_errors(capsys, tmp_path):
     bad.write_text("from bpkit import Blueprint\nclass B(Blueprint):\n    pakages = []\n")
     assert main(["render", str(bad)]) == 2
     assert "did you mean 'packages'" in capsys.readouterr().err
+    # no tracebacks for an unknown explain field or a missing file
+    assert main(["explain", f"{FLEET}:StagingWeb", "pakages"]) == 2
+    assert "did you mean 'packages'" in capsys.readouterr().err
+    assert main(["audit", str(FLEET), "--advisories", "--packages", str(tmp_path / "no")]) == 2
+    assert "bpkit: error:" in capsys.readouterr().err
 
 
 def test_debug_customize_via_env(capsys, monkeypatch):

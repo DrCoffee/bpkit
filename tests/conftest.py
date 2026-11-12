@@ -46,6 +46,7 @@ class FakeComposer:
         self.composes: dict[str, dict] = {}
         self.polls_until_done = 2
         self.fail = False
+        self.depsolve_errors: list[dict] = []
         self.depsolved = [
             {
                 "name": "openssl-libs",
@@ -81,7 +82,7 @@ def _weldr_handler(state: FakeComposer):
                     200,
                     {
                         "blueprints": [{"blueprint": bp, "dependencies": state.depsolved}],
-                        "errors": [],
+                        "errors": state.depsolve_errors,
                     },
                 )
             if parts[:2] == ["compose", "types"]:

@@ -109,7 +109,7 @@ concrete class pulls the mixin in.
 - `"vim"` → `Package("vim", "*")`; `Package("vim", "9.1*")`
 - `"nodejs:20"` in `enabled_modules` → `EnabledModule("nodejs", "20")`
 - `"Development Tools"` in `groups`; `"quay.io/x:1"` in `containers`
-- `Filesystem("/var", "10 GiB")`: size is a string with units (`kB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB`, the same as image-builder) or int bytes; the mountpoint must be absolute
+- `Filesystem("/var", "10 GiB")`: size is a whole number with units (`kB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB`, the same as image-builder; no decimals) or int bytes; the mountpoint must be absolute
 - `File(path, data, user, group, mode)`: mode as `"0644"` or `0o644`
 - Plain dicts are accepted anywhere a model is
 
@@ -122,7 +122,7 @@ bpkit turns it into `files` and `directories` customizations:
 overlays/web/
   etc/nginx/conf.d/site.conf
   etc/motd.d/10-banner
-  usr/local/bin/healthcheck        # 0755 on disk → mode = "0755"
+  usr/local/bin/healthcheck        # executable on disk → mode = "0755"
   var/www/html/static/.gitkeep     # marks an empty directory
 ```
 
@@ -133,7 +133,10 @@ class WebServer(Base):
 ```
 
 - Every regular file becomes a `File` with inline UTF-8 contents. Its mode is
-  taken from disk unless you pass `file_mode=` or `preserve_mode=False`.
+  `0755` if the file is executable on disk and `0644` otherwise, unless you
+  pass `file_mode=` or `preserve_mode=False`. Only the exec bit is read,
+  because that is all git tracks, so the output doesn't depend on your umask.
+  For any other mode (`0600`, `0440`) use `file_mode=` or an explicit `File`.
 - Every leaf directory becomes a `Directory` with `ensure_parents = true`, so
   missing parents are created. No mode, user or group is set unless you pass
   `dir_mode=` / `user=` / `group=`. image-builder then creates the directory
@@ -278,6 +281,10 @@ bpkit sbom fleet.py:WebServer --backend composer
 Writes a CycloneDX 1.6 SBOM (JSON or XML) of every package the image
 installs. Packages come from an `image-builder manifest` depsolve (no build,
 no root) with purls and SHA-256 digests, or from an osbuild-composer depsolve.
+
+`--backend composer` here and `bpkit audit --depsolve composer` upload the
+blueprint to osbuild-composer to depsolve it, replacing a stored blueprint
+with the same name.
 
 ## Importing and building
 

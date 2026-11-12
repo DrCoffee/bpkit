@@ -235,7 +235,10 @@ class ComposerClient:
             if state == FINISHED:
                 return entry
             if state == FAILED:
-                raise ComposerError(f"compose {build_id} failed (see `bpkit logs` / compose log)")
+                raise ComposerError(
+                    f"compose {build_id} failed (see `composer-cli compose log {build_id}` "
+                    "or ComposerClient.log())"
+                )
             if deadline is not None and time.monotonic() > deadline:
                 raise ComposerError(f"timed out waiting for compose {build_id} ({state})")
             time.sleep(poll)

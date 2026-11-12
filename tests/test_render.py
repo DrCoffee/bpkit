@@ -140,10 +140,20 @@ def test_extra_customizations_deep_merge():
     class C(B):
         extra_customizations = {"openscap": {"datastream": Unset}}
 
+    # empty tables and lists in passthrough values are kept: they can be meaningful
     assert B().to_dict()["customizations"] == {
         "openscap": {"profile_id": "stig", "datastream": "/ds.xml"},
+        "rhsm": {"config": {}},
     }
-    assert C().to_dict()["customizations"] == {"openscap": {"profile_id": "stig"}}
+    assert C().to_dict()["customizations"]["openscap"] == {"profile_id": "stig"}
+
+    class D(Blueprint):  # Unset under a table the parent doesn't have is resolved away
+        extra_customizations = {"openscap": {"profile_id": Unset, "tailoring": {"selected": []}}}
+
+    assert D().to_dict()["customizations"] == {"openscap": {"tailoring": {"selected": []}}}
+    assert D(extra_customizations=Replace({"a": {"b": Unset, "c": 1}})).extra_customizations == {
+        "a": {"c": 1}
+    }
 
 
 def test_write(tmp_path):

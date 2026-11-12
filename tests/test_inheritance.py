@@ -105,6 +105,16 @@ def test_multi_level_stacking():
     assert bp.to_dict()["customizations"]["kernel"]["append"] == "quiet audit=1 console=ttyS0"
 
 
+def test_kernel_append_list_items_split_like_the_string_form():
+    class K(Blueprint):
+        kernel_append = ["audit=1 quiet"]
+
+    class K2(K):
+        kernel_append = [Remove("quiet")]
+
+    assert list(K2().kernel_append) == ["audit=1"]
+
+
 # -- mixins and diamonds -----------------------------------------------------
 
 

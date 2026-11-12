@@ -30,7 +30,8 @@ def render_value(spec: FieldSpec, value: Any) -> Any:
     if spec.kind == "struct":
         return value.to_blueprint() or None
     if spec.kind == "extra":
-        return clean(value) or None
+        # Passthrough: an empty list or table may be meaningful, so keep it.
+        return clean(value, keep_empty=True) or None
     if isinstance(value, StructModel | KeyedModel):  # pragma: no cover - defensive
         return value.to_blueprint()
     return value

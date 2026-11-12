@@ -141,13 +141,6 @@ def _validate(parsed: ParsedBlueprint) -> None:
 # --------------------------------------------------------------------------
 
 
-def _entry_key(spec: FieldSpec, entry: Any) -> Any:
-    model: type[KeyedModel] = spec.type
-    if isinstance(entry, str):
-        return entry if model.__key__ != "name" or ":" not in entry else entry.split(":")[0]
-    return entry.get(model.__key__, entry.get(model.__key__.replace("_", "-")))
-
-
 def _common(spec: FieldSpec, values: list[Any]) -> Any:
     """What every one of ``values`` has in common for this field, or ``None``."""
     if any(v is None for v in values):
@@ -249,13 +242,16 @@ def _overlayable(entry: Mapping[str, Any]) -> bool:
         and "uri" not in entry
         and entry.get("user") is None
         and entry.get("group") is None
+        # An overlay only carries the exec bit; other modes must stay explicit.
+        and entry.get("mode") in (None, "0644", "0755")
     )
 
 
 def extract_overlay(fields: dict[str, Any], directory: Path) -> bool:
     """Move inline file contents in ``fields`` into ``directory``.
 
-    Files with an owner, a URI or no data stay as ``File`` entries. Returns
+    Files with an owner, a URI, no data or a mode other than ``0644`` /
+    ``0755`` stay as ``File`` entries. Returns
     whether anything was written.
     """
     files = fields.get("files") or []
@@ -420,7 +416,8 @@ def _render_class(
 ) -> str:
     head = f"class {cls_name}({bases}{', abstract=True' if abstract else ''}):"
     body: list[str] = []
-    if description and "\n" not in description and '"""' not in description:
+    plain = description and not any(s in description for s in ("\n", "\\", '"""'))
+    if plain and description == description.strip() and not description.endswith('"'):
         body.append(f'    """{description}"""')
         body.append("")
     elif description:
@@ -455,7 +452,7 @@ def import_blueprints(
     :param base: name of a class to factor common settings into (needs at
         least two blueprints). It is generated with ``abstract=True``.
     :param overlay_dir: write inline file contents into
-        ``overlay_dir/<blueprint-name>/`` (and ``overlay_dir/<base>/``) and
+        ``overlay_dir/<kebab-cased class name>/`` (and ``overlay_dir/<base>/``) and
         reference them with ``Overlay(...)``.
     :param module_dir: where the generated module will live, so overlay paths
         can be written relative to it. Defaults to the current directory.
@@ -521,7 +518,7 @@ def import_blueprints(
                 description=p.description,
                 version=p.version or "0.0.1",
                 fields=fields,
-                overlay=overlay_for(fields, p.name),
+                overlay=overlay_for(fields, kebab_case(cls_name)),
             )
         )
     imports = ", ".join(sorted(em.imports, key=lambda s: (s != "Blueprint", s)))

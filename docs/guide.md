@@ -113,7 +113,7 @@ Lay files out as they should appear on the image:
 overlays/web/
 ├── etc/nginx/conf.d/site.conf
 ├── etc/myapp/.gitkeep          # keeps an empty directory
-└── usr/local/bin/healthcheck   # 0755 on disk → mode "0755"
+└── usr/local/bin/healthcheck   # executable on disk → mode "0755"
 ```
 
 ```python
@@ -131,8 +131,10 @@ assert "/etc/nginx/conf.d/site.conf" in Web().files
 
 What an overlay generates:
 
-- **Files:** one `files` entry per file, with the contents inline and the
-  mode taken from disk.
+- **Files:** one `files` entry per file, with the contents inline and mode
+  `0755` if the file is executable on disk, else `0644`. Only the exec bit is
+  read (it is all git tracks), so output doesn't depend on your umask. Use
+  `file_mode=` or an explicit `File` for other modes.
 - **Directories:** one `directories` entry per leaf directory, with
   `ensure_parents = true` and no mode or owner. image-builder therefore
   tolerates directories the distro already ships (`/etc/nginx`).
@@ -261,7 +263,8 @@ bpkit import web.toml db.toml --base Fleet -o fleet.py --overlay-dir overlays
 You get one class per blueprint. `--base Fleet` moves whatever every
 blueprint shares into an abstract `Fleet`, and each subclass keeps only its
 differences. `--overlay-dir` writes inline file contents to
-`overlays/<name>/` and uses `Overlay(...)` in place of `File(...)`.
+`overlays/<name>/` and uses `Overlay(...)` in place of `File(...)`; files
+with an owner or a mode other than `0644`/`0755` stay as `File(...)`.
 `--from-composer NAME` imports a blueprint stored in osbuild-composer.
 
 The generated classes render back to the same blueprints. Only list order
@@ -365,6 +368,8 @@ osbuild-composer depsolve (`--depsolve composer`) or from
 `rpm -qa --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE} %{SOURCERPM}\n'`
 output (`--packages FILE`). They are checked against OSV.dev, which covers
 RHEL, AlmaLinux and Rocky Linux. `bpkit.audit` lists every code.
+`--depsolve composer` uploads the blueprint to osbuild-composer, replacing a
+stored blueprint with the same name.
 
 ## 12. SBOMs
 
@@ -382,7 +387,8 @@ built and no root is needed. It uses the same repositories a build would,
 including `--repo` and `BUILD_REPOS`. Each RPM is a `library` component with a
 `pkg:rpm/<vendor>/…` purl and the RPM's SHA-256. `--backend composer` gets
 the set from osbuild-composer's depsolve, which includes epochs but not file
-digests. `bpkit.sbom` has the Python API.
+digests; it uploads the blueprint there, replacing one with the same name.
+`bpkit.sbom` has the Python API.
 
 <!-- page: gotchas -->
 ## Gotchas

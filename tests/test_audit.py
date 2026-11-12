@@ -372,3 +372,22 @@ def test_cli_advisories_from_package_list(osv, tmp_path, capsys):
         == 1
     )
     assert "RHSA-2023:0946" in capsys.readouterr().out
+
+
+def test_class_ignore_covers_advisories(osv):
+    class Quiet(Clean):
+        distro = "fedora-42"
+        AUDIT_IGNORE = ["BP102"]
+
+    r = audit(Quiet())
+    check_advisories(r, [], "fedora-42")
+    assert codes(r) == []
+
+
+def test_depsolve_errors_raise(composer):
+    from bpkit.audit import resolve_with_composer
+    from bpkit.composer import ComposerClient
+
+    composer.depsolve_errors = [{"id": "BlueprintsError", "msg": "clean: no package nope"}]
+    with pytest.raises(RuntimeError, match="no package nope"):
+        resolve_with_composer(Clean(), ComposerClient(composer.socket))

@@ -41,7 +41,6 @@ def test_enabled_module_shorthand():
     [
         ("10 GiB", 10 * 1024**3),
         ("512MiB", 512 * 1024**2),
-        ("1.5 GB", 1_500_000_000),
         ("4096", 4096),
         (2048, 2048),
     ],
@@ -50,7 +49,8 @@ def test_parse_size(size, expected):
     assert parse_size(size) == expected
 
 
-@pytest.mark.parametrize("size", ["10 gib", "ten GiB", "-1 GiB", 0, "1 PB"])
+# image-builder only accepts whole numbers ("1.5 GiB" fails its TOML decode).
+@pytest.mark.parametrize("size", ["10 gib", "ten GiB", "-1 GiB", 0, "1 PB", "1.5 GiB"])
 def test_parse_size_rejects(size):
     with pytest.raises(ValueError):
         parse_size(size)

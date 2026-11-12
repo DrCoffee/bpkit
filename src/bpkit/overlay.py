@@ -11,7 +11,7 @@ Lay out config files the way they should land on the image::
 
 then declare ``overlay = Overlay("overlay")`` on a blueprint class. Every
 regular file becomes a :class:`~bpkit.models.File` (contents inline, mode
-taken from disk) and every leaf directory becomes a
+``0755`` if it is executable on disk, else ``0644``) and every leaf directory becomes a
 :class:`~bpkit.models.Directory` with ``ensure_parents = true``.
 
 Leaf directories are emitted with no mode, user or group unless you ask for
@@ -123,8 +123,11 @@ class Overlay:
         ``Overlay("nginx-conf", prefix="/etc/nginx")`` works too.
     :param user, group: owner for every generated entry (default: unset,
         which image-builder treats as root).
-    :param file_mode: force this mode on every file. By default each file's
-        mode is taken from disk (``preserve_mode=True``).
+    :param file_mode: force this mode on every file. By default
+        (``preserve_mode=True``) a file is ``0755`` if it is executable on
+        disk and ``0644`` otherwise. Only the exec bit is read, because that
+        is all git tracks; use ``file_mode`` or an explicit ``File`` for
+        anything else (``0600``, ``0440``…).
     :param dir_mode: mode for generated directories. Default unset, which
         lets image-builder tolerate directories that already exist.
     :param directories: ``"leaves"`` (default) emits only directories that
@@ -254,7 +257,9 @@ class Overlay:
                 if self.file_mode is not None:
                     mode: str | int | None = self.file_mode
                 elif self.preserve_mode:
-                    mode = stat.S_IMODE(st.st_mode)
+                    # Only the exec bit, which is all git tracks; the rest of
+                    # the on-disk mode depends on the checkout's umask.
+                    mode = 0o755 if st.st_mode & 0o111 else 0o644
                 else:
                     mode = None
                 files.append(File(target, data, user=self.user, group=self.group, mode=mode))

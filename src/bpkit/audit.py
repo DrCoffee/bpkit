@@ -123,9 +123,11 @@ class AuditReport:
     blueprint: str
     findings: list[Finding] = field(default_factory=list)
     packages: list[ResolvedPackage] = field(default_factory=list)
+    #: Codes dropped on ``add`` (``--ignore`` plus the classes' ``AUDIT_IGNORE``).
+    ignore: set[str] = field(default_factory=set)
 
     def add(self, *findings: Finding) -> None:
-        self.findings.extend(findings)
+        self.findings.extend(f for f in findings if f.code not in self.ignore)
 
     def sorted(self) -> list[Finding]:
         return sorted(self.findings, key=lambda f: (_RANK[f.severity], f.code, f.field, f.message))
@@ -750,13 +752,12 @@ def _ignored(bp: Blueprint) -> set[str]:
 def audit(bp: Blueprint, *, hosted: bool = False, ignore: Iterable[str] = ()) -> AuditReport:
     """Run the offline checks on a blueprint instance."""
     ctx = _Ctx(bp)
-    report = AuditReport(bp.name)
+    # The report keeps the ignore set, so check_advisories() honours it too.
+    report = AuditReport(bp.name, ignore=set(ignore) | _ignored(bp))
     for check in CHECKS:
         check(ctx, report)
     if hosted:
         _check_hosted(ctx, report)
-    skip = set(ignore) | _ignored(bp)
-    report.findings = [f for f in report.findings if f.code not in skip]
     return report
 
 
@@ -813,12 +814,17 @@ def load_package_list(path: str | Path) -> list[ResolvedPackage]:
 
 
 def resolve_with_composer(bp: Blueprint, client: Any) -> list[ResolvedPackage]:
-    """Push the blueprint to osbuild-composer and depsolve it."""
+    """Push the blueprint to osbuild-composer and depsolve it.
+
+    The push creates the blueprint in osbuild-composer's store, replacing one
+    with the same name.
+    """
     name = client.push(bp)
     reply = client.depsolve(name)
     entries = reply.get("blueprints", [])
-    if not entries:
-        raise RuntimeError(f"depsolve returned nothing for {name}: {reply.get('errors')}")
+    # A failed depsolve still returns the entry, with no dependencies.
+    if reply.get("errors") or not entries:
+        raise RuntimeError(f"depsolve failed for {name}: {reply.get('errors')}")
     return [
         ResolvedPackage(
             d["name"], int(d.get("epoch") or 0), d["version"], d["release"], d.get("arch")

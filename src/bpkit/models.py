@@ -94,18 +94,18 @@ class _Model(BaseModel):
         return clean(self.model_dump(by_alias=True, exclude_none=True))
 
 
-def clean(value: Any) -> Any:
-    """Recursively drop ``None``, empty lists and empty dicts."""
+def clean(value: Any, *, keep_empty: bool = False) -> Any:
+    """Recursively drop ``None`` and (unless ``keep_empty``) empty lists and dicts."""
     if isinstance(value, dict):
         out = {}
         for k, v in value.items():
-            v = clean(v)
-            if v is None or v == [] or v == {}:
+            v = clean(v, keep_empty=keep_empty)
+            if v is None or (not keep_empty and (v == [] or v == {})):
                 continue
             out[k] = v
         return out
     if isinstance(value, list):
-        return [clean(v) for v in value]
+        return [clean(v, keep_empty=keep_empty) for v in value]
     return value
 
 
@@ -113,7 +113,7 @@ def clean(value: Any) -> Any:
 # Validation helpers
 # --------------------------------------------------------------------------
 
-_SIZE_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*(kB|KiB|MB|MiB|GB|GiB|TB|TiB)?$")
+_SIZE_RE = re.compile(r"^(\d+)\s*(kB|KiB|MB|MiB|GB|GiB|TB|TiB)?$")
 _SIZE_UNITS = {
     None: 1,
     "kB": 1000,
@@ -138,10 +138,10 @@ def parse_size(size: str | int) -> int:
     m = _SIZE_RE.match(size.strip())
     if not m:
         raise ValueError(
-            f"invalid size {size!r}: expected a number with optional unit "
+            f"invalid size {size!r}: expected a whole number with optional unit "
             "(kB, KiB, MB, MiB, GB, GiB, TB, TiB), e.g. '10 GiB'"
         )
-    value = round(float(m.group(1)) * _SIZE_UNITS[m.group(2)])
+    value = int(m.group(1)) * _SIZE_UNITS[m.group(2)]
     if value <= 0:
         raise ValueError(f"size must be positive, got {size!r}")
     return value

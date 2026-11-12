@@ -149,7 +149,10 @@ def cmd_diff(args: argparse.Namespace) -> int:
 
 def cmd_explain(args: argparse.Namespace) -> int:
     cls = load_class(args.target)
-    print(cls().explain(args.field))
+    try:
+        print(cls().explain(args.field))
+    except KeyError as e:  # unknown field
+        raise CLIError(e.args[0]) from None
     return 0
 
 
@@ -379,7 +382,6 @@ def cmd_audit(args: argparse.Namespace) -> int:
             else:
                 packages = pinned_packages(bp)
             check_advisories(report, packages, args.distro or bp.distro)
-            report.findings = [f for f in report.findings if f.code not in set(args.ignore)]
         reports.append(report)
 
     if args.json:
@@ -467,7 +469,9 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("directory")
     o.add_argument("--prefix", default="/", help="where DIRECTORY maps to on the image")
     o.add_argument("--directories", choices=["leaves", "all", "none"], default="leaves")
-    o.add_argument("--no-mode", action="store_true", help="don't copy file modes from disk")
+    o.add_argument(
+        "--no-mode", action="store_true", help="don't set file modes (0755/0644 from the exec bit)"
+    )
     o.add_argument("--no-policy", action="store_true", help="skip image-builder path checks")
     o.set_defaults(func=cmd_overlay)
 
@@ -535,7 +539,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--format", choices=["json", "xml"], help="default: xml if -o ends in .xml, else json"
     )
     sb.add_argument("-o", "--output", help="write here instead of stdout")
-    sb.add_argument("--backend", choices=["local", "composer"], default="local")
+    sb.add_argument(
+        "--backend",
+        choices=["local", "composer"],
+        default="local",
+        help="composer uploads the blueprint to osbuild-composer, replacing one with "
+        "the same name (default: local)",
+    )
     sb.add_argument("--socket", default=None, help="osbuild-composer socket")
     sb.add_argument("--distro", help="distro override (default: the blueprint's)")
     sb.add_argument("--arch", help="architecture")
@@ -565,7 +575,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--hosted", action="store_true", help="also flag settings the hosted service can't express"
     )
     a.add_argument("--advisories", action="store_true", help="look up package advisories")
-    a.add_argument("--depsolve", choices=["composer"], help="resolve exact package versions")
+    a.add_argument(
+        "--depsolve",
+        choices=["composer"],
+        help="resolve exact package versions (uploads the blueprint to osbuild-composer, "
+        "replacing one with the same name)",
+    )
     a.add_argument("--packages", metavar="FILE", help="installed versions (rpm -qa output)")
     a.add_argument("--socket", default=None, help="osbuild-composer socket")
     a.add_argument("--distro", help="distro for advisory lookup (default: the blueprint's)")
@@ -595,6 +610,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except RuntimeError as e:  # ComposerError, HostedError, BuildError
         print(f"bpkit: error: {e}", file=sys.stderr)
         return 1
+    except OSError as e:  # missing --packages file, unwritable output, no network
+        print(f"bpkit: error: {e}", file=sys.stderr)
+        return 2
     except (TypeError, ValueError) as e:
         # Blueprint declaration errors surface here on import.
         print(f"bpkit: error: {type(e).__name__}: {e}", file=sys.stderr)

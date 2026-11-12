@@ -298,3 +298,12 @@ def test_remove_unknown_overlay_raises(layered):
 def test_drop_overlay_via_kwargs(layered):
     _, _, Web = layered
     assert contents(Web(overlay=Unset)) == {"/etc/issue": "explicit issue\n"}
+
+
+def test_mode_ignores_umask_bits(tmp_path):
+    """Only the exec bit counts (all git tracks), so a umask 002 checkout renders the same."""
+    root = make_tree(tmp_path / "ov", {"etc/a.conf": "a", "usr/local/bin/tool": "#!/bin/sh\n"})
+    (root / "etc/a.conf").chmod(0o664)
+    (root / "usr/local/bin/tool").chmod(0o775)
+    _, files = Overlay(root).entries()
+    assert [f.mode for f in files] == ["0644", "0755"]
