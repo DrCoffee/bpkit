@@ -308,7 +308,8 @@ bpkit build fleet.py:WebServer -t qcow2 --extra-repo ./rpms-out/   # a directory
   defaults for a hierarchy with `BUILD_REPOS = [...]` /
   `BUILD_EXTRA_REPOS = [...]` on a class. They are only used to fetch
   packages and aren't written into the image. They apply to the local
-  backend; `--data-dir` passes image-builder custom `repositories/*.json`.
+  backend; `--data-dir DIR` passes image-builder your own repository files
+  (`DIR/<distro>.json`, e.g. `DIR/fedora-42.json`).
   An entry can also be a local directory of RPMs (relative to the module that
   declares it): bpkit indexes it with `createrepo_c` and passes it as
   `file://`. For a repo that should also be configured **in the image**, use

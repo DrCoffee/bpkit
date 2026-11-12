@@ -56,9 +56,14 @@ class _UnixHTTPConnection(http.client.HTTPConnection):
         sock.settimeout(self.timeout)
         try:
             sock.connect(self._path)
-        except OSError:
+        except OSError as e:
             sock.close()
-            raise
+            if isinstance(e, (FileNotFoundError, PermissionError)):
+                raise  # _request gives these a hint
+            # e.g. "AF_UNIX path too long", or a stale socket nothing listens on
+            raise ComposerError(
+                f"can't connect to osbuild-composer socket {self._path}: {e}"
+            ) from None
         self.sock = sock
 
 

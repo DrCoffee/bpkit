@@ -29,8 +29,9 @@ attributes; relative directories are resolved against the declaring module::
         ]
 
 Subclasses inherit them like any class attribute; ``repos=`` / ``bpkit build
---repo`` override them. ``data_dir`` passes ``--data-dir`` for full control via
-``repositories/<distro>.json`` files.
+--repo`` override them. ``data_dir`` passes ``--data-dir`` for full control: a directory
+holding ``<distro>.json`` repository files (``fedora-42.json``). Put them directly
+in it: image-builder 17 doesn't look in a ``repositories/`` subdirectory.
 
 Pre-build steps and spec files
 ------------------------------
@@ -128,6 +129,8 @@ def _declared(bp: Blueprint | Any, attr: str) -> tuple[Any, Path]:
     """A class attribute and the directory of the module that declares it."""
     from .blueprint import _module_dir
 
+    if attr in getattr(bp, "__dict__", {}):  # set on the instance
+        return vars(bp)[attr], Path.cwd()
     for klass in type(bp).__mro__:
         if attr in vars(klass):
             return vars(klass)[attr], _module_dir(klass.__module__) or Path.cwd()
@@ -200,6 +203,9 @@ def _repo_args(
 
     ``built`` (the repo ``_prepare`` made from ``RPM_SPECS``) is always added.
     """
+    if data_dir is not None and not Path(data_dir).is_dir():
+        # image-builder silently falls back to the default repos
+        raise BuildError(f"data dir {data_dir} is not a directory")
     out: dict[str, Any] = {"data_dir": data_dir}
     for key, attr, given in (
         ("repos", "BUILD_REPOS", repos),

@@ -74,6 +74,8 @@ def test_composer_errors(composer, tmp_path):
         client.wait(bid, poll=0)
     with pytest.raises(ComposerError, match=r"not found; is osbuild-composer\.socket running"):
         ComposerClient(tmp_path / "missing.socket").status()
+    with pytest.raises(ComposerError, match="can't connect to osbuild-composer socket"):
+        ComposerClient(tmp_path / ("x" * 200)).status()  # longer than AF_UNIX allows
 
 
 def test_composer_cli_build_and_import(composer, tmp_path, capsys):
@@ -346,6 +348,16 @@ def test_string_build_repos_is_one_url(fake_image_builder, tmp_path):
     argv = fake_image_builder()["argv"]
     assert argv[argv.index("--force-repo") + 1] == "http://mirror.lan/os/"
     assert argv.count("--force-repo") == argv.count("--extra-repo") == 1
+
+
+def test_instance_build_repos_and_missing_data_dir(fake_image_builder, tmp_path):
+    bp = Web()
+    bp.BUILD_REPOS = ["http://mirror.lan/os/"]  # set on the instance, not the class
+    build(bp, "qcow2", output_dir=tmp_path / "out")
+    argv = fake_image_builder()["argv"]
+    assert argv[argv.index("--force-repo") + 1] == "http://mirror.lan/os/"
+    with pytest.raises(BuildError, match="is not a directory"):  # image-builder ignores it
+        build(bp, "qcow2", output_dir=tmp_path / "out", data_dir=tmp_path / "nope")
 
 
 def test_local_build(fake_image_builder, tmp_path):

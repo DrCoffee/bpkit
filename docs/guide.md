@@ -323,9 +323,11 @@ class AirGapped(WebServer):
 ```
 
 These repos are only used to fetch packages. They aren't written into the
-image; use `repositories` for that. `--data-dir` passes image-builder a
-directory of `repositories/<distro>.json` files for full control (metalinks,
-GPG keys). This all applies to the **local** backend. For osbuild-composer,
+image; use `repositories` for that. `--data-dir DIR` passes image-builder a
+directory of `<distro>.json` repository files (`DIR/fedora-42.json`) for full
+control (metalinks, GPG keys). Put the files directly in `DIR`: image-builder
+17 ignores a `DIR/repositories/` subdirectory and quietly uses the default
+repos. This all applies to the **local** backend. For osbuild-composer,
 put `repositories/<distro>.json` overrides in `/etc/osbuild-composer/` on the
 server.
 
@@ -433,5 +435,12 @@ digests; it uploads the blueprint there, replacing one with the same name.
 - **Duplicate keys:** listing the same key twice in one declaration is an
   error. Across classes, the child's entry replaces the parent's.
 - **Removing scalars:** `None` is rejected for scalars. Use `Unset`.
+- **Settings image-builder drops:** image-builder accepts some settings and
+  then leaves them out of the image without an error. With image-builder 17,
+  `services.masked` is dropped (Fedora and CentOS Stream), and so is
+  `firewall.zones` on Fedora. Check with
+  `image-builder manifest TYPE --blueprint bp.toml | grep NAME` when a setting
+  matters. `Services(disabled=[...])` does reach the image, but a disabled
+  unit can still be started by hand or as a dependency.
 - **Bulk render:** `bpkit render module` only renders classes *defined* in
   that module, not ones it imports, and skips `abstract=True` classes.

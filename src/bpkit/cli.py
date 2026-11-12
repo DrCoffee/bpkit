@@ -436,7 +436,9 @@ def _add_repo_args(p: argparse.ArgumentParser) -> None:
         help="add a repo alongside the standard ones (repeatable); a directory of RPMs "
         "is indexed with createrepo_c",
     )
-    g.add_argument("--data-dir", help="image-builder data dir with repositories/<distro>.json")
+    g.add_argument(
+        "--data-dir", help="directory of image-builder repository files (DIR/<distro>.json)"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
