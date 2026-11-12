@@ -16,9 +16,11 @@ Local repositories and mirrors
 
 ``repos`` replaces the distro's standard repositories for the build
 (``--force-repo``); ``extra_repos`` adds to them (``--extra-repo``). Both take
-base URLs (``https://``, ``http://`` or ``file://``) and are used only to fetch
-packages: they are not written into the image. Set them once for a hierarchy
-with class attributes::
+base URLs (``https://``, ``http://`` or ``file://``) or a local directory of
+RPMs, which is indexed with ``createrepo_c`` and passed as ``file://``. They are
+used only to fetch packages: they are not written into the image (use the
+``repositories`` field for that). Set them once for a hierarchy with class
+attributes; relative directories are resolved against the declaring module::
 
     class AirGapped(Blueprint):
         BUILD_REPOS = [
@@ -29,13 +31,31 @@ with class attributes::
 Subclasses inherit them like any class attribute; ``repos=`` / ``bpkit build
 --repo`` override them. ``data_dir`` passes ``--data-dir`` for full control via
 ``repositories/<distro>.json`` files.
+
+Pre-build steps and spec files
+------------------------------
+
+``PRE_BUILD`` lists commands to run before ``image-builder`` (a string runs in
+a shell, a list is an argv), and ``RPM_SPECS`` lists spec files to build with
+``rpmbuild`` into a temporary repo that is added as an extra repo. Both run in
+the directory of the module that declares them, ``PRE_BUILD`` first::
+
+    class App(Blueprint):
+        packages = ["myapp"]                    # still say what to install
+        PRE_BUILD = ["make -C rpms sources"]    # e.g. create Source0 tarballs
+        RPM_SPECS = ["rpms/myapp.spec"]         # sources are looked up next to the spec
+
+They run for ``build`` and ``manifest`` (so ``bpkit sbom`` sees the packages),
+after the blueprint is rendered: they can't change overlay contents.
 """
 
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -104,20 +124,91 @@ def _distro_of(bp: Blueprint | Any, distro: str | None) -> str | None:
     return distro or getattr(bp, "distro", None)
 
 
+def _declared(bp: Blueprint | Any, attr: str) -> tuple[Any, Path]:
+    """A class attribute and the directory of the module that declares it."""
+    from .blueprint import _module_dir
+
+    for klass in type(bp).__mro__:
+        if attr in vars(klass):
+            return vars(klass)[attr], _module_dir(klass.__module__) or Path.cwd()
+    return (), Path.cwd()
+
+
+def _listed(value: Any) -> list[Any]:
+    """A bare string or path is one entry, not a sequence of characters."""
+    return [value] if isinstance(value, (str, os.PathLike)) else list(value)
+
+
+def _run(cmd: str | Sequence[Any], cwd: Path) -> None:
+    """Run a pre-build step. Output is captured so stdout stays clean for ``bpkit sbom``."""
+    shown = cmd if isinstance(cmd, str) else shlex.join(map(str, cmd))
+    print(f"bpkit: {shown}", file=sys.stderr)
+    try:
+        result = subprocess.run(
+            cmd, cwd=cwd, shell=isinstance(cmd, str), capture_output=True, text=True, check=False
+        )
+    except OSError as e:
+        raise BuildError(f"can't run `{shown}`: {e}") from None
+    if result.returncode != 0:
+        raise BuildError(
+            f"`{shown}` failed (exit {result.returncode}):\n"
+            f"{(result.stdout + result.stderr).strip()[-2000:]}",
+            returncode=result.returncode,
+            stderr=result.stderr,
+        )
+
+
+def _repo_url(repo: str | os.PathLike[str], base: Path) -> str:
+    """URLs pass through; a path is a local directory of RPMs, indexed and passed as file://."""
+    if "://" in str(repo):
+        return str(repo)
+    path = (base / repo).resolve()
+    _run(["createrepo_c", "--update", "--quiet", path], path)
+    return path.as_uri()
+
+
+def _prepare(bp: Blueprint | Any, tmp: Path) -> list[str]:
+    """Run ``PRE_BUILD`` commands, then build ``RPM_SPECS`` into a repo under ``tmp``."""
+    commands, cwd = _declared(bp, "PRE_BUILD")
+    for cmd in _listed(commands):
+        _run(cmd, cwd)
+    specs, base = _declared(bp, "RPM_SPECS")
+    if not specs:
+        return []
+    top = tmp / "rpmbuild"
+    for spec in _listed(specs):
+        spec = (base / spec).resolve()
+        # ponytail: host rpmbuild, so packages target the host's distro and need its
+        # BuildRequires installed. Fine for noarch/config packages; for anything else run
+        # mock in PRE_BUILD and list its result directory in BUILD_EXTRA_REPOS.
+        _run(
+            ["rpmbuild", "-bb", "-D", f"_topdir {top}", "-D", f"_sourcedir {spec.parent}", spec],
+            spec.parent,
+        )
+    _run(["createrepo_c", "--quiet", top / "RPMS"], tmp)
+    return [(top / "RPMS").as_uri()]
+
+
 def _repo_args(
     bp: Blueprint | Any,
     repos: Sequence[str] | None,
     extra_repos: Sequence[str] | None,
     data_dir: str | Path | None,
+    built: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """Explicit arguments win over the blueprint's BUILD_REPOS / BUILD_EXTRA_REPOS."""
-    repos = getattr(bp, "BUILD_REPOS", ()) if repos is None else repos
-    extra_repos = getattr(bp, "BUILD_EXTRA_REPOS", ()) if extra_repos is None else extra_repos
-    return {  # a bare string is one URL, not a sequence of characters
-        "repos": [repos] if isinstance(repos, str) else list(repos),
-        "extra_repos": [extra_repos] if isinstance(extra_repos, str) else list(extra_repos),
-        "data_dir": data_dir,
-    }
+    """Explicit arguments win over the blueprint's BUILD_REPOS / BUILD_EXTRA_REPOS.
+
+    ``built`` (the repo ``_prepare`` made from ``RPM_SPECS``) is always added.
+    """
+    out: dict[str, Any] = {"data_dir": data_dir}
+    for key, attr, given in (
+        ("repos", "BUILD_REPOS", repos),
+        ("extra_repos", "BUILD_EXTRA_REPOS", extra_repos),
+    ):
+        value, base = _declared(bp, attr) if given is None else (given, Path.cwd())
+        out[key] = [_repo_url(r, base) for r in _listed(value)]
+    out["extra_repos"] += built
+    return out
 
 
 def build(
@@ -155,7 +246,7 @@ def build(
             output_dir=out,
             extra_args=extra_args,
             executable=exe,
-            **_repo_args(blueprint, repos, extra_repos, data_dir),
+            **_repo_args(blueprint, repos, extra_repos, data_dir, _prepare(blueprint, Path(tmp))),
         )
         result = subprocess.run(cmd, capture_output=capture, text=True, check=False)
     if result.returncode != 0:
@@ -193,7 +284,7 @@ def manifest(
             arch=arch,
             extra_args=extra_args,
             executable=exe,
-            **_repo_args(blueprint, repos, extra_repos, data_dir),
+            **_repo_args(blueprint, repos, extra_repos, data_dir, _prepare(blueprint, Path(tmp))),
         )
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:

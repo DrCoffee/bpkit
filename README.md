@@ -300,6 +300,7 @@ bpkit status <id> [--backend hosted]
 
 bpkit build fleet.py:WebServer -t qcow2 --repo http://mirror.lan/rhel9/baseos/  # mirror only
 bpkit build fleet.py:WebServer -t qcow2 --extra-repo file:///srv/repos/internal/
+bpkit build fleet.py:WebServer -t qcow2 --extra-repo ./rpms-out/   # a directory of RPMs
 ```
 
 - **Local repos and mirrors:** `--repo URL` (repeatable) replaces the distro's
@@ -308,6 +309,18 @@ bpkit build fleet.py:WebServer -t qcow2 --extra-repo file:///srv/repos/internal/
   `BUILD_EXTRA_REPOS = [...]` on a class. They are only used to fetch
   packages and aren't written into the image. They apply to the local
   backend; `--data-dir` passes image-builder custom `repositories/*.json`.
+  An entry can also be a local directory of RPMs (relative to the module that
+  declares it): bpkit indexes it with `createrepo_c` and passes it as
+  `file://`. For a repo that should also be configured **in the image**, use
+  `repositories = [Repository(..., install_from=True)]`.
+- **Pre-build steps and spec files:** `PRE_BUILD = ["make -C rpms sources"]`
+  runs commands before the build, and `RPM_SPECS = ["rpms/myapp.spec"]`
+  builds spec files with `rpmbuild` into a temporary repo the build can
+  install from (list the package in `packages` as usual). Both run in the
+  declaring module's directory, for `build` and `sbom` on the local backend.
+  `rpmbuild` runs on the host, so this suits noarch and config packages; for
+  compiled code, run `mock` from `PRE_BUILD` and list its result directory
+  in `BUILD_EXTRA_REPOS`.
 
 - **Import:** you get one class per blueprint, and `--base` factors the
   shared settings into an abstract class. The output renders back to the

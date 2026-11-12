@@ -305,7 +305,11 @@ alongside the standard ones:
 bpkit build fleet.py:WebServer -t qcow2 \
     --repo http://mirror.lan/rhel9/baseos/ --repo http://mirror.lan/rhel9/appstream/
 bpkit build fleet.py:WebServer -t qcow2 --extra-repo file:///srv/repos/internal/
+bpkit build fleet.py:WebServer -t qcow2 --extra-repo ./rpms-out/
 ```
+
+A repo can be a URL or a local directory of RPMs. bpkit indexes a directory
+with `createrepo_c` (in place) and passes it as `file://`.
 
 Or set them once for a hierarchy with `BUILD_REPOS` / `BUILD_EXTRA_REPOS`.
 Subclasses inherit them, and `--repo` overrides them:
@@ -324,6 +328,36 @@ directory of `repositories/<distro>.json` files for full control (metalinks,
 GPG keys). This all applies to the **local** backend. For osbuild-composer,
 put `repositories/<distro>.json` overrides in `/etc/osbuild-composer/` on the
 server.
+
+For a repo that should be configured in the image **and** used to install
+packages during the build, declare it once in the blueprint:
+`repositories = [Repository("internal", baseurls=[...], gpgkeys=[...],
+gpgcheck=True, install_from=True)]`.
+
+### Pre-build steps and spec files
+
+A blueprint can declare work to do before the image is built: commands to
+run, and spec files to build into packages the image installs.
+
+```python
+class Packaged(WebServer):
+    packages = ["myapp"]                    # still say what to install
+    PRE_BUILD = ["make -C rpms sources"]    # e.g. create the Source0 tarball
+    RPM_SPECS = ["rpms/myapp.spec"]         # sources are looked up next to the spec
+```
+
+`bpkit build` (and `bpkit sbom`) runs the `PRE_BUILD` commands, builds each
+spec with `rpmbuild`, indexes the result with `createrepo_c` and adds it as an
+extra repo for that build. Paths and commands are relative to the module that
+declares them. A string command runs in a shell; a list is an argv.
+
+- These steps run after the blueprint is rendered, so they can't generate
+  overlay files.
+- `rpmbuild` runs on the host: packages are built for the host's distro and
+  need their `BuildRequires` installed. That suits noarch and config
+  packages. For compiled code, run `mock` from `PRE_BUILD` and list its
+  result directory in `BUILD_EXTRA_REPOS`.
+- Local backend only; other backends print a warning and skip them.
 
 <!-- page: audit -->
 ## 11. Auditing

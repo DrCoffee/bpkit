@@ -1,12 +1,21 @@
 """osbuild-composer, hosted service and local image-builder backends (against fakes)."""
 
 import json
+import shutil
 import tomllib
+from pathlib import Path
 
 import pytest
 
 from bpkit import Blueprint, Container, File, Filesystem, Firewall, Repository, Services, User
-from bpkit.build import BuildError, build, image_builder_command, manifest
+from bpkit.build import (
+    BuildError,
+    _prepare,
+    _repo_args,
+    build,
+    image_builder_command,
+    manifest,
+)
 from bpkit.cli import main
 from bpkit.composer import ComposerClient, ComposerError
 from bpkit.hosted import (
@@ -384,3 +393,60 @@ def test_local_build_cli(fake_image_builder, tmp_path, capsys):
     argv = fake_image_builder()["argv"]
     assert argv[argv.index("--distro") + 1] == "centos-9"
     assert argv[-1] == "--with-manifest"
+
+
+def test_pre_build_runs_in_the_declaring_module_dir(fake_image_builder, tmp_path):
+    class Pre(Web):
+        PRE_BUILD = [f"pwd > {tmp_path}/cwd"]
+
+    class Broken(Web):
+        PRE_BUILD = ["echo boom >&2; exit 3"]
+
+    build(Pre(), "qcow2", output_dir=tmp_path / "out")
+    assert (tmp_path / "cwd").read_text().strip() == str(Path(__file__).resolve().parent)
+    with pytest.raises(BuildError, match="boom"):
+        build(Broken(), "qcow2", output_dir=tmp_path / "out")
+
+
+SPEC = """\
+Name: bpkit-hello
+Version: 1.0
+Release: 1
+Summary: test
+License: MIT
+BuildArch: noarch
+Source0: hello.txt
+%description
+test
+%install
+install -Dm0644 %{SOURCE0} %{buildroot}/usr/share/bpkit-hello/hello.txt
+%files
+/usr/share/bpkit-hello
+"""
+
+
+@pytest.mark.skipif(
+    not (shutil.which("rpmbuild") and shutil.which("createrepo_c")),
+    reason="needs rpm-build and createrepo_c",
+)
+def test_rpm_specs_and_local_repos(tmp_path):
+    tmp_path = tmp_path.resolve()
+    (tmp_path / "hello.spec").write_text(SPEC)
+    for name in ("repo", "work"):
+        (tmp_path / name).mkdir()
+
+    class Pkg(Web):
+        PRE_BUILD = [f"echo hi > {tmp_path}/hello.txt"]  # the spec's Source0
+        RPM_SPECS = [tmp_path / "hello.spec"]
+        BUILD_EXTRA_REPOS = [tmp_path / "repo", "http://mirror.lan/x/"]
+
+    args = _repo_args(Pkg(), None, None, None, _prepare(Pkg(), tmp_path / "work"))
+    rpms = tmp_path / "work/rpmbuild/RPMS"
+    assert list(rpms.rglob("bpkit-hello-1.0-1.noarch.rpm"))
+    assert (rpms / "repodata").is_dir()
+    assert (tmp_path / "repo/repodata").is_dir()  # local directories are indexed in place
+    assert args["extra_repos"] == [
+        (tmp_path / "repo").as_uri(),
+        "http://mirror.lan/x/",
+        rpms.as_uri(),
+    ]

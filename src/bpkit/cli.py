@@ -242,8 +242,14 @@ def cmd_push(args: argparse.Namespace) -> int:
     return 0
 
 
-def _repo_kwargs(args: argparse.Namespace) -> dict[str, object]:
+def _repo_kwargs(args: argparse.Namespace, bp: Blueprint) -> dict[str, object]:
     """Build-repo flags for bpkit.build; None lets the blueprint's BUILD_REPOS apply."""
+    skipped = [a for a in ("PRE_BUILD", "RPM_SPECS") if getattr(bp, a, None)]
+    if args.backend != "local" and skipped:
+        print(
+            f"bpkit: warning: {' and '.join(skipped)} only run with --backend local",
+            file=sys.stderr,
+        )
     if args.backend != "local" and (args.repo or args.extra_repo or args.data_dir):
         raise CLIError(
             "--repo/--extra-repo/--data-dir only apply to --backend local; for "
@@ -259,7 +265,7 @@ def _repo_kwargs(args: argparse.Namespace) -> dict[str, object]:
 def cmd_build(args: argparse.Namespace) -> int:
     bp = load_class(args.target)()
     outdir = Path(args.output)
-    repo_kwargs = _repo_kwargs(args)
+    repo_kwargs = _repo_kwargs(args, bp)
     if args.backend == "local":
         from .build import build
 
@@ -310,7 +316,7 @@ def cmd_sbom(args: argparse.Namespace) -> int:
     from .sbom import cyclonedx, packages_from_manifest
 
     bp = load_class(args.target)()
-    repo_kwargs = _repo_kwargs(args)
+    repo_kwargs = _repo_kwargs(args, bp)
     if args.backend == "composer":
         from .audit import resolve_with_composer
         from .composer import DEFAULT_SOCKET, ComposerClient
@@ -418,7 +424,7 @@ def _add_repo_args(p: argparse.ArgumentParser) -> None:
         "--repo",
         action="append",
         default=[],
-        metavar="URL",
+        metavar="URL|DIR",
         help="use this repo in place of the distro's standard ones (repeatable; "
         "overrides the blueprint's BUILD_REPOS)",
     )
@@ -426,8 +432,9 @@ def _add_repo_args(p: argparse.ArgumentParser) -> None:
         "--extra-repo",
         action="append",
         default=[],
-        metavar="URL",
-        help="add a repo alongside the standard ones (repeatable)",
+        metavar="URL|DIR",
+        help="add a repo alongside the standard ones (repeatable); a directory of RPMs "
+        "is indexed with createrepo_c",
     )
     g.add_argument("--data-dir", help="image-builder data dir with repositories/<distro>.json")
 
